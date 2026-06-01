@@ -10,6 +10,7 @@ yarn-error.log*
 .env.production
 config/credentials.json
 config/tokens.json
+config/topics.json
 config/*.key
 config/*.pem
 *.key
@@ -68,3 +69,6 @@ coverage/
 
 # Knowledge-graph cache (graphify)
 graphify-out/
+
+# Internal handoff notes (keep local)
+HANDOFF.md

@@ -1,4 +1,6 @@
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Logger } = require('../utils/logger');
 
@@ -349,18 +351,46 @@ class ContentStrategyAgent {
     return null;
   }
 
-  // ── Original story premise selection ─────────────────────────────────────
-  // The channel now runs on ORIGINAL stories written from scratch — same model
-  // as the channels that actually win this niche (e.g. BrokenStories, who state
-  // outright "I write every story from scratch"). Real Reddit posts are messy,
-  // poorly structured, and give us no control over the hook. Original premises
-  // let us engineer every beat: a clean conflict, a sharp twist, a payoff.
-  //
-  // This method only PICKS a premise. The full story is written by the script
-  // writer via NIM (Llama 4 Maverick) so all the creative generation lives in
-  // one place. We pick a category, then a specific situation within it — this
-  // keeps the content varied across the emotional themes that drive watch time.
+  // ── Topic configuration ──────────────────────────────────────────────────
+  // Users pick their own niche by creating config/topics.json (copy from
+  // config/topics.example.json). It holds:
+  //   { "contentStyle": "<how stories should sound>", "topics": ["...", "..."] }
+  // If absent, we fall back to the built-in default topic set below so the tool
+  // works out of the box. The full story is written by the script writer (NIM);
+  // this method only PICKS what each video is about.
+  loadTopicsConfig() {
+    try {
+      const p = path.join(__dirname, '..', 'config', 'topics.json');
+      if (fs.existsSync(p)) {
+        const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (Array.isArray(cfg.topics) && cfg.topics.length) return cfg;
+      }
+    } catch (e) {
+      this.logger.warn(`Could not read config/topics.json: ${e.message}`);
+    }
+    return null;
+  }
+
   selectStoryPremise() {
+    const recentTopics = this.getRecentTopics();
+
+    // 1. User-defined topics take priority (config/topics.json)
+    const userCfg = this.loadTopicsConfig();
+    if (userCfg) {
+      const fresh = userCfg.topics.filter(t => !recentTopics.includes(t));
+      const pool  = fresh.length ? fresh : userCfg.topics;
+      const pick  = pool[Math.floor(Math.random() * pool.length)];
+      this.logger.info(`Selected topic (from config/topics.json): "${pick}"`);
+      return {
+        topic:        pick,
+        premise:      pick,
+        category:     userCfg.category || 'Custom',
+        contentStyle: userCfg.contentStyle || null,
+        isOriginal:   true
+      };
+    }
+
+    // 2. Built-in default topic bank (dramatic first-person stories)
     const premiseBank = {
       'Relationship Betrayal': [
         'My girlfriend was caught cheating, and her excuse made it ten times worse',
@@ -407,7 +437,6 @@ class ContentStrategyAgent {
     };
 
     const categories = Object.keys(premiseBank);
-    const recentTopics = this.getRecentTopics();
 
     // Flatten to (category, premise) pairs, prefer ones not recently used
     const allPairs = categories.flatMap(cat =>
@@ -539,9 +568,10 @@ Write only the topic title — one sentence in English. No quotes, no explanatio
         bestPublishTime: this.calculateBestPublishTime(),
         competitorAnalysis: this.getCompetitorInsights(topic),
         // Original story fields — passed through to the script writer
-        isOriginal: true,
-        premise:    premiseData.premise,
-        category:   premiseData.category,
+        isOriginal:   true,
+        premise:      premiseData.premise,
+        category:     premiseData.category,
+        contentStyle: premiseData.contentStyle || null,
         createdAt: new Date().toISOString()
       };
 

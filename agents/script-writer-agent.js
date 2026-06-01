@@ -39,10 +39,14 @@ class ScriptWriterAgent {
   async generateOriginalStory(strategy) {
     const premise  = strategy.premise || strategy.topic;
     const category = strategy.category || 'drama';
+    // Tone/style is user-configurable via config/topics.json → contentStyle.
+    // Default matches the original dramatic first-person story format.
+    const contentStyle = strategy.contentStyle ||
+      'gripping, emotional first-person stories that feel completely real — like a true confession someone posted online';
 
-    const prompt = `You are the head writer for a faceless YouTube Shorts channel that tells gripping, emotional first-person stories over calm background video. Your stories are ORIGINAL fiction written to feel completely real — like a true confession someone posted online.
+    const prompt = `You are the head writer for a faceless YouTube Shorts channel. The channel's content style is: ${contentStyle}.
 
-PREMISE TO BUILD FROM: "${premise}"
+PREMISE / TOPIC TO BUILD FROM: "${premise}"
 CATEGORY: ${category}
 
 Write a complete original story package. Return ONLY valid JSON (no markdown):
@@ -443,7 +447,7 @@ Return ONLY valid JSON, no markdown, no code blocks:
        Channel style: viral, entertaining, all ages. Be energetic and engaging.
        Return ONLY the introduction text, no labels or explanation.`
     );
-    const introText = aiIntro || `Hey everyone, welcome back to Vid Shock! Today we're diving into ${strategy.topic} and you're NOT going to believe what we found.`;
+    const introText = aiIntro || `Hey everyone, welcome back! Today we're diving into ${strategy.topic} and you're NOT going to believe what we found.`;
     return {
       greeting: introText,
       topicIntro: `Today's topic: ${strategy.topic}.`,
@@ -480,7 +484,7 @@ Return ONLY valid JSON, no markdown, no code blocks:
   async generateMainContent(strategy, template) {
     const aiBody = await this.callGemini(
       `Write the full main body script for a YouTube video about "${strategy.topic}".
-       Content type: ${strategy.contentType}. Channel: Vid Shock — viral, trending, entertaining content for all ages.
+       Content type: ${strategy.contentType}. Channel: a viral, trending, entertaining channel for all ages.
        Structure it with 3-5 clear sections. Each section should have a bold heading and 2-4 engaging sentences.
        Keep total length suitable for a 5-8 minute video. Write in a conversational, energetic tone.
        Return ONLY the script body text with section headings, no extra explanation.`
@@ -761,7 +765,7 @@ Return ONLY valid JSON, no markdown, no code blocks:
 
   async generateConclusion(strategy) {
     const aiConclusion = await this.callGemini(
-      `Write a 2-3 sentence conclusion for a YouTube video about "${strategy.topic}" for the channel Vid Shock.
+      `Write a 2-3 sentence conclusion for a YouTube video about "${strategy.topic}".
        End on a high note that leaves viewers wanting more. Return ONLY the conclusion text.`
     );
     return {
@@ -775,7 +779,7 @@ Return ONLY valid JSON, no markdown, no code blocks:
   async generateCTA(strategy) {
     return {
       type: 'call_to_action',
-      subscribe: "If this blew your mind, smash that subscribe button and ring the bell so you never miss a Vid Shock drop!",
+      subscribe: "If this blew your mind, smash that subscribe button and ring the bell so you never miss a new video!",
       like: "Tap the like button if this video shocked you.",
       comment: `Comment below: Did you already know about ${strategy.topic}? Let's see who's in the know!`,
       nextVideo: "Check out our next video — you won't believe what we found.",

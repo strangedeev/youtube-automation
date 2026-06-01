@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Behind Closed Doors — Dashboard</title>
+  <title>YouTube Automation — Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -242,7 +242,7 @@
 
 <!-- Sidebar -->
 <nav class="sidebar">
-  <div class="logo">BEHIND <span>CLOSED DOORS</span></div>
+  <div class="logo" id="logo">YOUTUBE <span>AUTOMATION</span></div>
   <div class="nav-item active" onclick="showPage('overview', this)">
     <span class="nav-icon">⚡</span> Overview
   </div>
@@ -291,12 +291,18 @@
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <input id="custom-topic" type="text" placeholder="Optional: type a topic for this video…"
+        style="flex:1;min-width:240px;max-width:420px;padding:12px 16px;border-radius:10px;
+        border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;">
       <button class="generate-btn" id="gen-btn" onclick="generateContent()">
         <div class="spinner"></div>
         <span class="btn-text">⚡ Generate Video Now</span>
       </button>
       <span id="gen-status-text" style="font-size:14px;color:var(--sub);font-style:italic;"></span>
+    </div>
+    <div style="font-size:12px;color:var(--sub);margin-top:6px;">
+      Leave the box empty to auto-pick from your configured topics, or type any topic to generate it now.
     </div>
 
     <div class="card">
@@ -557,10 +563,11 @@
     btn.disabled = true;
     startStatusPolling();
     try {
+      const customTopic = (document.getElementById('custom-topic')?.value || '').trim();
       const res = await fetch('/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: null, style: 'story', length: 'medium' })
+        body: JSON.stringify({ topic: customTopic || null, style: 'story', length: 'medium' })
       });
       const d = await res.json();
       if (d.success) {
@@ -627,6 +634,19 @@
   // Always reset the generate button on load — it gets stuck if page is refreshed mid-generation
   const _genBtn = document.getElementById('gen-btn');
   if (_genBtn) { _genBtn.classList.remove('loading'); _genBtn.disabled = false; }
+
+  // Brand the dashboard from config (channel name → logo + tab title)
+  fetch('/config').then(r => r.json()).then(c => {
+    if (c.channelName) {
+      const parts = c.channelName.trim().split(/\s+/);
+      const first = parts.shift() || c.channelName;
+      const rest = parts.join(' ');
+      document.getElementById('logo').innerHTML = rest
+        ? `${first.toUpperCase()} <span>${rest.toUpperCase()}</span>`
+        : `<span>${first.toUpperCase()}</span>`;
+      document.title = `${c.channelName} — Dashboard`;
+    }
+  }).catch(() => {});
 
   checkHealth();
   loadOverview();

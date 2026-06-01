@@ -103,6 +103,12 @@ class YouTubeAutomationAgent {
       });
     });
 
+    // Dashboard branding — channel name pulled from config (falls back to generic)
+    this.app.get('/config', (req, res) => {
+      const channelName = this.credentials?.credentials?.channel?.channelName || 'YouTube Automation';
+      res.json({ channelName });
+    });
+
     // Generation status — polled by dashboard every 2s during active generation
     this.generationStatus = { active: false, step: '' };
     this.app.get('/status', (req, res) => {

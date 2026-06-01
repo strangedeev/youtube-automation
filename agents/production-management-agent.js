@@ -583,7 +583,7 @@ class ProductionManagementAgent {
     }
 
     try {
-      const title = productionData.script?.title || 'Vid Shock';
+      const title = productionData.script?.title || 'Untitled';
       const topic = productionData.strategy?.topic || title;
       const bgBasePath = path.join(__dirname, '..', 'data', 'assets', `${productionData.id}_bg.jpg`);
       const finalVideoPath = path.join(__dirname, '..', 'data', 'videos', `${productionData.id}_final.mp4`);
