@@ -1,411 +1,643 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ethereal Dreamscript - YouTube Automation Dashboard</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
-            min-height: 100vh;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .header {
-            text-align: center;
-            color: white;
-            margin-bottom: 30px;
-        }
-        
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-        
-        .header p {
-            font-size: 1.2em;
-            opacity: 0.9;
-        }
-        
-        .status-bar {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 20px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-        
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        
-        .status-card {
-            text-align: center;
-            padding: 15px;
-            background: linear-gradient(45deg, #f093fb 0%, #f5576c 100%);
-            border-radius: 10px;
-            color: white;
-        }
-        
-        .status-card h3 {
-            font-size: 2em;
-            margin-bottom: 5px;
-        }
-        
-        .status-card p {
-            opacity: 0.9;
-        }
-        
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 20px;
-        }
-        
-        .dashboard-card {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 25px;
-            border-radius: 15px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-        
-        .dashboard-card h2 {
-            color: #667eea;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .card-content {
-            line-height: 1.6;
-        }
-        
-        .loading {
-            text-align: center;
-            color: #666;
-            font-style: italic;
-        }
-        
-        .btn {
-            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin: 5px;
-            transition: transform 0.2s;
-        }
-        
-        .btn:hover {
-            transform: translateY(-2px);
-        }
-        
-        .schedule-item {
-            background: #f8f9ff;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            border-left: 4px solid #667eea;
-        }
-        
-        .log-entry {
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-            padding: 5px;
-            margin: 2px 0;
-            background: #f5f5f5;
-            border-radius: 3px;
-        }
-        
-        .success { color: #28a745; }
-        .warning { color: #ffc107; }
-        .error { color: #dc3545; }
-        .info { color: #17a2b8; }
-        
-        .refresh-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            font-size: 1.5em;
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            transition: transform 0.2s;
-        }
-        
-        .refresh-btn:hover {
-            transform: scale(1.1);
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Behind Closed Doors — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:       #0c0c0f;
+      --surface:  #141418;
+      --border:   #1e1e26;
+      --muted:    #3a3a4a;
+      --text:     #e8e8f0;
+      --sub:      #888899;
+      --accent:   #ff3c3c;
+      --accent2:  #ff6b35;
+      --green:    #22c55e;
+      --yellow:   #f59e0b;
+      --blue:     #3b82f6;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 220px;
+      min-height: 100vh;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 0;
+      flex-shrink: 0;
+    }
+
+    .logo {
+      font-family: 'Bebas Neue', cursive;
+      font-size: 24px;
+      letter-spacing: 1px;
+      line-height: 1.1;
+      color: var(--accent);
+      padding: 0 24px 28px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .logo span { color: var(--text); }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 24px;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--sub);
+      transition: all .15s;
+      user-select: none;
+    }
+    .nav-item:hover { color: var(--text); background: rgba(255,60,60,.06); }
+    .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(255,60,60,.08); }
+    .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 20px 24px 0;
+      border-top: 1px solid var(--border);
+    }
+    .status-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      margin-right: 6px;
+      box-shadow: 0 0 6px var(--green);
+    }
+    .status-label { font-size: 12px; color: var(--sub); }
+
+    /* ── Main ── */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px 36px;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    .page-title {
+      font-family: 'Bebas Neue', cursive;
+      font-size: 32px;
+      letter-spacing: 1.5px;
+      margin-bottom: 28px;
+      color: var(--text);
+    }
+
+    /* ── Stats row ── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+    .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--sub); margin-bottom: 8px; }
+    .stat-value { font-family: 'Bebas Neue', cursive; font-size: 42px; line-height: 1; }
+    .stat-value.red    { color: var(--accent); }
+    .stat-value.green  { color: var(--green); }
+    .stat-value.blue   { color: var(--blue); }
+    .stat-sub { font-size: 12px; color: var(--sub); margin-top: 4px; }
+
+    /* ── Generate button ── */
+    .generate-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      margin-bottom: 32px;
+    }
+    .generate-btn:hover { opacity: .88; transform: translateY(-1px); }
+    .generate-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: none;
+    }
+    .generate-btn.loading .spinner { display: block; }
+    .generate-btn.loading .btn-text { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card-header {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--sub);
+      margin-bottom: 16px;
+    }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: var(--sub);
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 12px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-green  { background: rgba(34,197,94,.15);  color: var(--green); }
+    .badge-yellow { background: rgba(245,158,11,.15); color: var(--yellow); }
+    .badge-blue   { background: rgba(59,130,246,.15); color: var(--blue); }
+    .badge-muted  { background: var(--border); color: var(--sub); }
+
+    .yt-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .yt-link:hover { text-decoration: underline; }
+
+    .empty { color: var(--sub); font-size: 14px; padding: 24px 0; text-align: center; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      background: #1e1e26;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      color: var(--text);
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity .2s, transform .2s;
+      pointer-events: none;
+      z-index: 999;
+      max-width: 320px;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+    #toast.success { border-left-color: var(--green); }
+    #toast.error   { border-left-color: var(--accent); }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🎬 Ethereal Dreamscript</h1>
-            <p>YouTube Automation Dashboard</p>
-        </div>
-        
-        <div class="status-bar">
-            <div class="status-grid">
-                <div class="status-card">
-                    <h3 id="system-status">🟢</h3>
-                    <p>System Status</p>
-                </div>
-                <div class="status-card">
-                    <h3 id="content-count">-</h3>
-                    <p>Content Generated</p>
-                </div>
-                <div class="status-card">
-                    <h3 id="published-count">-</h3>
-                    <p>Videos Published</p>
-                </div>
-                <div class="status-card">
-                    <h3 id="next-generation">-</h3>
-                    <p>Next Generation</p>
-                </div>
-            </div>
-            <div style="text-align: center;">
-                <button class="btn" onclick="generateContent()">🎬 Generate Content Now</button>
-                <button class="btn" onclick="viewAnalytics()">📊 View Analytics</button>
-                <button class="btn" onclick="viewSchedule()">📅 View Schedule</button>
-            </div>
-        </div>
-        
-        <div class="dashboard-grid">
-            <div class="dashboard-card">
-                <h2>📈 System Overview</h2>
-                <div class="card-content">
-                    <div id="system-overview" class="loading">Loading system status...</div>
-                </div>
-            </div>
-            
-            <div class="dashboard-card">
-                <h2>📅 Upcoming Schedule</h2>
-                <div class="card-content">
-                    <div id="upcoming-schedule" class="loading">Loading schedule...</div>
-                </div>
-            </div>
-            
-            <div class="dashboard-card">
-                <h2>🎯 Content Strategy</h2>
-                <div class="card-content">
-                    <div id="content-strategy">
-                        <p><strong>Current Focus:</strong> Animated Storytelling</p>
-                        <p><strong>Target Audience:</strong> Creative individuals interested in storytelling and imagination</p>
-                        <p><strong>Content Types:</strong> Story-driven content, Explainers, Tutorials</p>
-                        <p><strong>Posting Frequency:</strong> Daily</p>
-                        <p><strong>Optimal Time:</strong> 2:00 PM</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="dashboard-card">
-                <h2>📊 Recent Activity</h2>
-                <div class="card-content">
-                    <div id="recent-activity" class="loading">Loading activity...</div>
-                </div>
-            </div>
-            
-            <div class="dashboard-card">
-                <h2>🤖 Agent Status</h2>
-                <div class="card-content">
-                    <div id="agent-status" class="loading">Loading agent status...</div>
-                </div>
-            </div>
-            
-            <div class="dashboard-card">
-                <h2>📈 Performance Metrics</h2>
-                <div class="card-content">
-                    <div id="performance-metrics" class="loading">Loading metrics...</div>
-                </div>
-            </div>
-        </div>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+  <div class="logo">BEHIND <span>CLOSED DOORS</span></div>
+  <div class="nav-item active" onclick="showPage('overview', this)">
+    <span class="nav-icon">⚡</span> Overview
+  </div>
+  <div class="nav-item" onclick="showPage('videos', this)">
+    <span class="nav-icon">🎬</span> Videos
+  </div>
+  <div class="nav-item" onclick="showPage('schedule', this)">
+    <span class="nav-icon">📅</span> Schedule
+  </div>
+  <div class="nav-item" onclick="showPage('analytics', this)">
+    <span class="nav-icon">📈</span> Analytics
+  </div>
+  <div class="sidebar-footer">
+    <span class="status-dot"></span>
+    <span class="status-label" id="system-status">System active</span>
+  </div>
+</nav>
+
+<!-- Main content -->
+<main class="main">
+
+  <!-- ── Overview ── -->
+  <div id="page-overview" class="page active">
+    <div class="page-title">Overview</div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Published</div>
+        <div class="stat-value green" id="stat-published">—</div>
+        <div class="stat-sub">videos live on YouTube</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Scheduled</div>
+        <div class="stat-value blue" id="stat-scheduled">—</div>
+        <div class="stat-sub">queued for upload</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Scripts</div>
+        <div class="stat-value red" id="stat-scripts">—</div>
+        <div class="stat-sub">generated so far</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Views</div>
+        <div class="stat-value" style="color:#f59e0b" id="stat-views">—</div>
+        <div class="stat-sub">across all videos</div>
+      </div>
     </div>
-    
-    <button class="refresh-btn" onclick="refreshDashboard()" title="Refresh Dashboard">
-        🔄
-    </button>
-    
-    <script>
-        // Dashboard functionality
-        async function loadDashboard() {
-            try {
-                // Load system health
-                const healthResponse = await fetch('/health');
-                const healthData = await healthResponse.json();
-                updateSystemStatus(healthData);
-                
-                // Load schedule
-                const scheduleResponse = await fetch('/schedule');
-                const scheduleData = await scheduleResponse.json();
-                updateSchedule(scheduleData);
-                
-                // Load analytics
-                try {
-                    const analyticsResponse = await fetch('/analytics');
-                    const analyticsData = await analyticsResponse.json();
-                    updateMetrics(analyticsData);
-                } catch (error) {
-                    console.log('Analytics not available yet');
-                }
-                
-            } catch (error) {
-                console.error('Dashboard load error:', error);
-                document.getElementById('system-status').textContent = '🔴';
-            }
-        }
-        
-        function updateSystemStatus(data) {
-            document.getElementById('system-status').textContent = data.status === 'healthy' ? '🟢' : '🔴';
-            
-            const overview = document.getElementById('system-overview');
-            overview.innerHTML = `
-                <p><strong>Status:</strong> ${data.initialized ? 'Initialized' : 'Initializing'}</p>
-                <p><strong>Agents Active:</strong> ${data.agents ? data.agents.length : 0}/7</p>
-                <p><strong>Uptime:</strong> ${formatUptime(process?.uptime?.() || 0)}</p>
-                <p><strong>Last Updated:</strong> ${new Date().toLocaleTimeString()}</p>
-            `;
-            
-            const agentStatus = document.getElementById('agent-status');
-            if (data.agents) {
-                agentStatus.innerHTML = data.agents.map(agent => 
-                    `<div class="schedule-item">✅ ${agent} Agent</div>`
-                ).join('');
-            }
-        }
-        
-        function updateSchedule(data) {
-            const schedule = document.getElementById('upcoming-schedule');
-            
-            if (data && data.length > 0) {
-                schedule.innerHTML = data.slice(0, 3).map(item => `
-                    <div class="schedule-item">
-                        <strong>${item.title || 'Content Generation'}</strong><br>
-                        <small>${new Date(item.publishTime || item.scheduledTime).toLocaleString()}</small>
-                    </div>
-                `).join('');
-                
-                // Update next generation time
-                const nextItem = data[0];
-                if (nextItem) {
-                    const nextTime = new Date(nextItem.publishTime || nextItem.scheduledTime);
-                    document.getElementById('next-generation').textContent = 
-                        nextTime.toLocaleDateString() === new Date().toLocaleDateString() 
-                            ? nextTime.toLocaleTimeString() 
-                            : 'Tomorrow';
-                }
-            } else {
-                schedule.innerHTML = `
-                    <div class="schedule-item">
-                        <strong>📅 Daily Content Generation</strong><br>
-                        <small>Scheduled for 6:00 AM daily</small>
-                    </div>
-                    <div class="schedule-item">
-                        <strong>📊 Analytics Collection</strong><br>
-                        <small>Scheduled for 9:00 AM daily</small>
-                    </div>
-                    <div class="schedule-item">
-                        <strong>🔧 Optimization Tasks</strong><br>
-                        <small>Scheduled for 10:00 PM daily</small>
-                    </div>
-                `;
-                document.getElementById('next-generation').textContent = '6:00 AM';
-            }
-        }
-        
-        function updateMetrics(data) {
-            const metrics = document.getElementById('performance-metrics');
-            if (data && data.totalVideos !== undefined) {
-                document.getElementById('content-count').textContent = data.totalVideos || '0';
-                document.getElementById('published-count').textContent = data.totalVideos || '0';
-                
-                metrics.innerHTML = `
-                    <p><strong>Average Performance:</strong> ${data.averagePerformanceScore || 'N/A'}</p>
-                    <p><strong>Total Content:</strong> ${data.totalVideos || 0}</p>
-                    <p><strong>System Health:</strong> Excellent</p>
-                `;
-            } else {
-                metrics.innerHTML = `
-                    <p><strong>Status:</strong> System just started</p>
-                    <p><strong>First Content:</strong> Will generate within 24 hours</p>
-                    <p><strong>Automation:</strong> Active and ready</p>
-                `;
-            }
-            
-            // Update activity log
-            const activity = document.getElementById('recent-activity');
-            activity.innerHTML = `
-                <div class="log-entry success">✅ System initialized successfully</div>
-                <div class="log-entry info">ℹ️ All 7 agents are active</div>
-                <div class="log-entry info">ℹ️ Content strategy loaded</div>
-                <div class="log-entry info">ℹ️ Automation scheduler started</div>
-                <div class="log-entry success">✅ Ready for content generation</div>
-            `;
-        }
-        
-        function formatUptime(seconds) {
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            return `${hours}h ${minutes}m`;
-        }
-        
-        async function generateContent() {
-            if (confirm('Generate content now? This will create a new video for your channel.')) {
-                try {
-                    const response = await fetch('/generate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ topic: null, style: 'story' })
-                    });
-                    const result = await response.json();
-                    alert(`Content generation started! Title: ${result.result?.title || 'New Content'}`);
-                    refreshDashboard();
-                } catch (error) {
-                    alert('Content generation failed. Please try again.');
-                }
-            }
-        }
-        
-        function viewAnalytics() {
-            window.open('/analytics', '_blank');
-        }
-        
-        function viewSchedule() {
-            window.open('/schedule', '_blank');
-        }
-        
-        function refreshDashboard() {
-            loadDashboard();
-        }
-        
-        // Auto-refresh every 30 seconds
-        setInterval(refreshDashboard, 30000);
-        
-        // Load dashboard on page load
-        loadDashboard();
-    </script>
+
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <button class="generate-btn" id="gen-btn" onclick="generateContent()">
+        <div class="spinner"></div>
+        <span class="btn-text">⚡ Generate Video Now</span>
+      </button>
+      <span id="gen-status-text" style="font-size:14px;color:var(--sub);font-style:italic;"></span>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Recent Videos</div>
+      <div id="overview-recent">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Videos ── -->
+  <div id="page-videos" class="page">
+    <div class="page-title">All Videos</div>
+    <div class="card">
+      <div class="card-header">All produced &amp; uploaded videos</div>
+      <div id="videos-table">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Schedule ── -->
+  <div id="page-schedule" class="page">
+    <div class="page-title">Upload Schedule</div>
+    <div class="card">
+      <div class="card-header">Upcoming &amp; past scheduled posts</div>
+      <div id="schedule-table">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Analytics ── -->
+  <div id="page-analytics" class="page">
+    <div class="page-title">Analytics</div>
+    <div class="card">
+      <div class="card-header">Published videos — click to open on YouTube</div>
+      <div id="analytics-table">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  // ── Navigation ──
+  function showPage(name, navEl) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    navEl.classList.add('active');
+    loadPage(name);
+  }
+
+  function loadPage(name) {
+    if (name === 'overview')   loadOverview();
+    if (name === 'videos')     loadVideos();
+    if (name === 'schedule')   loadSchedule();
+    if (name === 'analytics')  loadAnalytics();
+  }
+
+  // ── Toast ──
+  let toastTimer;
+  function toast(msg, type = '') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'show ' + type;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = ''; }, 3500);
+  }
+
+  // ── Stats ──
+  async function loadStats() {
+    try {
+      const res = await fetch('/stats');
+      const d = await res.json();
+      document.getElementById('stat-published').textContent = d.published ?? '0';
+      document.getElementById('stat-scheduled').textContent = d.scheduled ?? '0';
+      document.getElementById('stat-scripts').textContent   = d.scriptsGenerated ?? '0';
+    } catch (e) {
+      console.warn('stats error', e);
+    }
+
+    // Fetch total views from YouTube API (separate call — slightly slower)
+    try {
+      const vres = await fetch('/stats/views');
+      const vd   = await vres.json();
+      const views = vd.totalViews ?? 0;
+      document.getElementById('stat-views').textContent =
+        views >= 1000000 ? (views / 1000000).toFixed(1) + 'M'
+        : views >= 1000  ? (views / 1000).toFixed(1) + 'K'
+        : views.toString();
+    } catch (e) {
+      document.getElementById('stat-views').textContent = '—';
+    }
+  }
+
+  // ── Overview ──
+  async function loadOverview() {
+    loadStats();
+    try {
+      const res = await fetch('/videos');
+      const rows = await res.json();
+      const el = document.getElementById('overview-recent');
+      if (!rows.length) { el.innerHTML = '<div class="empty">No videos yet — hit Generate to create one.</div>'; return; }
+      const recent = rows.slice(0, 5);
+      el.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>Thumbnail</th><th>Title</th><th>Status</th><th>Scheduled</th><th>YouTube</th>
+          </tr></thead>
+          <tbody>
+            ${recent.map(r => `
+              <tr>
+                <td style="width:120px">
+                  ${r.youtube_id
+                    ? `<a href="${esc(r.youtube_url)}" target="_blank">
+                        <img src="https://i.ytimg.com/vi/${esc(r.youtube_id)}/mqdefault.jpg"
+                          style="width:120px;height:68px;object-fit:cover;border-radius:6px;display:block;"
+                          onerror="this.style.display='none'">
+                       </a>`
+                    : '<div style="width:120px;height:68px;background:var(--card);border-radius:6px;"></div>'}
+                </td>
+                <td>${esc(r.title || '—')}</td>
+                <td>${statusBadge(r.status)}</td>
+                <td>${fmtDate(r.publish_time)}</td>
+                <td>${r.youtube_url ? `<a class="yt-link" href="${esc(r.youtube_url)}" target="_blank">▶ Watch</a>` : '<span style="color:var(--muted)">—</span>'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch (e) {
+      document.getElementById('overview-recent').innerHTML = '<div class="empty">Error loading videos.</div>';
+    }
+  }
+
+  // ── Videos ──
+  async function loadVideos() {
+    try {
+      const res = await fetch('/videos');
+      const rows = await res.json();
+      const el = document.getElementById('videos-table');
+      if (!rows.length) { el.innerHTML = '<div class="empty">No videos found.</div>'; return; }
+      el.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>#</th><th>Thumbnail</th><th>Title</th><th>Status</th><th>Scheduled</th><th>Published</th><th>YouTube</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map((r, i) => `
+              <tr>
+                <td style="color:var(--sub)">${rows.length - i}</td>
+                <td style="width:120px">
+                  ${r.youtube_id
+                    ? `<a href="${esc(r.youtube_url)}" target="_blank">
+                        <img src="https://i.ytimg.com/vi/${esc(r.youtube_id)}/mqdefault.jpg"
+                          style="width:120px;height:68px;object-fit:cover;border-radius:6px;display:block;"
+                          onerror="this.style.display='none'">
+                       </a>`
+                    : '<div style="width:120px;height:68px;background:var(--card);border-radius:6px;"></div>'}
+                </td>
+                <td>${esc(r.title || '—')}</td>
+                <td>${statusBadge(r.status)}</td>
+                <td>${fmtDate(r.publish_time)}</td>
+                <td>${fmtDate(r.published_at)}</td>
+                <td>${r.youtube_url ? `<a class="yt-link" href="${esc(r.youtube_url)}" target="_blank">▶ Watch</a>` : '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch (e) {
+      document.getElementById('videos-table').innerHTML = '<div class="empty">Error loading videos.</div>';
+    }
+  }
+
+  // ── Schedule ──
+  async function loadSchedule() {
+    try {
+      const res = await fetch('/schedule');
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : (data.schedule || []);
+      const el = document.getElementById('schedule-table');
+      if (!rows.length) { el.innerHTML = '<div class="empty">No scheduled posts yet.</div>'; return; }
+      el.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>Title</th><th>Scheduled For</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${esc(r.title || r.video_title || '—')}</td>
+                <td>${fmtDate(r.publishTime || r.publish_time || r.scheduledTime)}</td>
+                <td>${statusBadge(r.status)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch (e) {
+      document.getElementById('schedule-table').innerHTML = '<div class="empty">Error loading schedule.</div>';
+    }
+  }
+
+  // ── Analytics ──
+  async function loadAnalytics() {
+    try {
+      const res = await fetch('/videos');
+      const rows = await res.json();
+      const published = rows.filter(r => r.status === 'published' || r.youtube_url);
+      const el = document.getElementById('analytics-table');
+      if (!published.length) {
+        el.innerHTML = '<div class="empty">No published videos yet.</div>';
+        return;
+      }
+      el.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>Title</th><th>Published</th><th>YouTube ID</th><th>Link</th>
+          </tr></thead>
+          <tbody>
+            ${published.map(r => `
+              <tr>
+                <td>${esc(r.title || '—')}</td>
+                <td>${fmtDate(r.published_at || r.publish_time)}</td>
+                <td style="font-family:monospace;font-size:12px;color:var(--sub)">${esc(r.youtube_id || '—')}</td>
+                <td>${r.youtube_url ? `<a class="yt-link" href="${esc(r.youtube_url)}" target="_blank">▶ Open on YouTube</a>` : '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch (e) {
+      document.getElementById('analytics-table').innerHTML = '<div class="empty">Error loading analytics.</div>';
+    }
+  }
+
+  // ── Generate ──
+  let _statusPoller = null;
+
+  function startStatusPolling() {
+    const label = document.getElementById('gen-status-text');
+    _statusPoller = setInterval(async () => {
+      try {
+        const s = await fetch('/status').then(r => r.json());
+        if (label) label.textContent = s.active ? s.step : '';
+      } catch (_) {}
+    }, 1500);
+  }
+
+  function stopStatusPolling() {
+    if (_statusPoller) { clearInterval(_statusPoller); _statusPoller = null; }
+    const label = document.getElementById('gen-status-text');
+    if (label) label.textContent = '';
+  }
+
+  async function generateContent() {
+    const btn = document.getElementById('gen-btn');
+    btn.classList.add('loading');
+    btn.disabled = true;
+    startStatusPolling();
+    try {
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: null, style: 'story', length: 'medium' })
+      });
+      const d = await res.json();
+      if (d.success) {
+        toast(`✅ Done: ${d.result?.title || 'Video created'}`, 'success');
+        loadOverview();
+      } else {
+        toast('❌ Generation failed: ' + (d.error || 'unknown error'), 'error');
+      }
+    } catch (e) {
+      toast('❌ Network error — check server logs', 'error');
+    } finally {
+      stopStatusPolling();
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
+
+  // ── System health ──
+  async function checkHealth() {
+    try {
+      const res = await fetch('/health');
+      const d = await res.json();
+      const el = document.getElementById('system-status');
+      if (d.status === 'healthy' && d.initialized) {
+        el.innerHTML = 'System active';
+        el.previousElementSibling.style.background = 'var(--green)';
+        el.previousElementSibling.style.boxShadow = '0 0 6px var(--green)';
+      } else {
+        el.innerHTML = 'Initializing…';
+        el.previousElementSibling.style.background = 'var(--yellow)';
+        el.previousElementSibling.style.boxShadow = '0 0 6px var(--yellow)';
+      }
+    } catch {
+      document.getElementById('system-status').innerHTML = 'Offline';
+    }
+  }
+
+  // ── Helpers ──
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function fmtDate(val) {
+    if (!val) return '<span style="color:var(--muted)">—</span>';
+    try {
+      const d = new Date(val);
+      if (isNaN(d)) return esc(val);
+      return d.toLocaleDateString('en-US', { month:'short', day:'numeric' }) +
+             ' <span style="color:var(--sub)">' +
+             d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) + '</span>';
+    } catch { return esc(val); }
+  }
+
+  function statusBadge(status) {
+    if (!status) return '<span class="badge badge-muted">unknown</span>';
+    const s = status.toLowerCase();
+    if (s === 'published') return '<span class="badge badge-green">published</span>';
+    if (s === 'scheduled') return '<span class="badge badge-blue">scheduled</span>';
+    if (s === 'pending')   return '<span class="badge badge-yellow">pending</span>';
+    return `<span class="badge badge-muted">${esc(status)}</span>`;
+  }
+
+  // ── Boot ──
+  // Always reset the generate button on load — it gets stuck if page is refreshed mid-generation
+  const _genBtn = document.getElementById('gen-btn');
+  if (_genBtn) { _genBtn.classList.remove('loading'); _genBtn.disabled = false; }
+
+  checkHealth();
+  loadOverview();
+  setInterval(() => {
+    checkHealth();
+    const activePage = document.querySelector('.nav-item.active');
+    if (activePage) {
+      const name = activePage.textContent.trim().toLowerCase();
+      loadPage(name);
+    }
+  }, 60000);
+</script>
 </body>
 </html>

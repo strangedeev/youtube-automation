@@ -103,12 +103,45 @@ class YouTubeAutomationAgent {
       });
     });
 
+    // Generation status — polled by dashboard every 2s during active generation
+    this.generationStatus = { active: false, step: '' };
+    this.app.get('/status', (req, res) => {
+      res.json(this.generationStatus);
+    });
+
     // Manual content generation
     this.app.post('/generate', async (req, res) => {
       try {
         const { topic, style, length } = req.body;
         const result = await this.generateContent(topic, style, length);
         res.json({ success: true, result });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // List generated scripts
+    this.app.get('/content', async (req, res) => {
+      try {
+        const rows = await this.db.getAllRows('SELECT id, title, duration, tone, created_at FROM scripts ORDER BY created_at DESC LIMIT 20');
+        res.json({ success: true, scripts: rows });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // View a single script's full content
+    this.app.get('/content/:id', async (req, res) => {
+      try {
+        const row = await this.db.getRow('SELECT * FROM scripts WHERE id = ?', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Script not found' });
+        row.hook = JSON.parse(row.hook || '{}');
+        row.introduction = JSON.parse(row.introduction || '{}');
+        row.mainContent = JSON.parse(row.main_content || '{}');
+        row.conclusion = JSON.parse(row.conclusion || '{}');
+        row.callToAction = JSON.parse(row.call_to_action || '{}');
+        row.keywords = JSON.parse(row.keywords || '[]');
+        res.json({ success: true, script: row });
       } catch (error) {
         res.status(500).json({ success: false, error: error.message });
       }
@@ -134,6 +167,65 @@ class YouTubeAutomationAgent {
       }
     });
 
+    // All videos (published + scheduled) for dashboard
+    this.app.get('/videos', async (req, res) => {
+      try {
+        const rows = await this.db.getAllRows(
+          `SELECT id, production_id, title, publish_time, status, youtube_id, youtube_url, published_at, created_at
+           FROM publish_schedule ORDER BY created_at DESC`
+        );
+        res.json(rows);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Dashboard stats summary
+    this.app.get('/stats', async (req, res) => {
+      try {
+        const [published, scheduled, scripts] = await Promise.all([
+          this.db.getRow(`SELECT COUNT(*) as count FROM publish_schedule WHERE status = 'published'`),
+          this.db.getRow(`SELECT COUNT(*) as count FROM publish_schedule WHERE status = 'scheduled'`),
+          this.db.getRow(`SELECT COUNT(*) as count FROM scripts`)
+        ]);
+        res.json({
+          published: published?.count || 0,
+          scheduled: scheduled?.count || 0,
+          scriptsGenerated: scripts?.count || 0
+        });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Total view count across all published videos — fetched live from YouTube API
+    this.app.get('/stats/views', async (req, res) => {
+      try {
+        const rows = await this.db.getAllRows(
+          `SELECT youtube_id FROM publish_schedule WHERE status = 'published' AND youtube_id IS NOT NULL`
+        );
+        if (!rows.length) return res.json({ totalViews: 0, videoCount: 0 });
+
+        const youtube = this.credentials.getYouTubeClient();
+        const BATCH   = 50;
+        let totalViews = 0;
+        let videoCount = 0;
+
+        for (let i = 0; i < rows.length; i += BATCH) {
+          const ids = rows.slice(i, i + BATCH).map(r => r.youtube_id).join(',');
+          const response = await youtube.videos.list({ part: 'statistics', id: ids });
+          for (const item of response.data.items || []) {
+            totalViews += parseInt(item.statistics?.viewCount || 0);
+            videoCount++;
+          }
+        }
+
+        res.json({ totalViews, videoCount });
+      } catch (error) {
+        res.status(500).json({ error: error.message, totalViews: 0 });
+      }
+    });
+
     // Manual publish
     this.app.post('/publish/:contentId', async (req, res) => {
       try {
@@ -146,43 +238,80 @@ class YouTubeAutomationAgent {
     });
   }
 
+  setStatus(step) {
+    if (this.generationStatus) this.generationStatus = { active: true, step };
+  }
+
   async generateContent(topic = null, style = null, length = 'medium') {
+    this.generationStatus = { active: true, step: 'Starting up…' };
     this.logger.info('Starting content generation pipeline...');
-    
-    // Step 1: Strategy
-    const strategy = await this.agents.strategy.generateContentStrategy(topic);
-    this.logger.info(`Strategy generated: ${strategy.topic}`);
-    
-    // Step 2: Script Writing
-    const script = await this.agents.scriptWriter.generateScript(strategy);
-    this.logger.info(`Script generated: ${script.title}`);
-    
-    // Step 3: Thumbnail Design
-    const thumbnail = await this.agents.thumbnailDesigner.generateThumbnail(script);
-    this.logger.info('Thumbnail generated');
-    
-    // Step 4: SEO Optimization
-    const seoData = await this.agents.seoOptimizer.optimize(script, strategy);
-    this.logger.info('SEO optimization complete');
-    
-    // Step 5: Production Management
-    const productionData = await this.agents.production.processContent({
-      strategy,
-      script,
-      thumbnail,
-      seo: seoData
-    });
-    this.logger.info('Production processing complete');
-    
-    // Step 6: Save to database
-    const contentId = await this.db.saveProductionData(productionData);
-    this.logger.info(`Content saved with ID: ${contentId}`);
-    
-    return {
-      contentId,
-      title: script.title,
-      scheduledFor: productionData.scheduledPublishTime
-    };
+
+    try {
+      // Step 1: Strategy
+      this.setStatus('🔍 Finding a Reddit story…');
+      const strategy = await this.agents.strategy.generateContentStrategy(topic);
+      this.logger.info(`Strategy generated: ${strategy.topic}`);
+
+      // Step 2: Script Writing
+      this.setStatus('✍️ Writing the script…');
+      const script = await this.agents.scriptWriter.generateScript(strategy);
+      this.logger.info(`Script generated: ${script.title}`);
+
+      // Step 3: Thumbnail Design
+      this.setStatus('🎨 Generating AI thumbnail…');
+      const thumbnail = await this.agents.thumbnailDesigner.generateThumbnail(script);
+      this.logger.info('Thumbnail generated');
+
+      // Step 4: SEO Optimization
+      this.setStatus('🏷️ Optimising tags & description…');
+      const seoData = await this.agents.seoOptimizer.optimize(script, strategy);
+      this.logger.info('SEO optimization complete');
+
+      // Step 5: Production Management (TTS + video assembly)
+      this.setStatus('🎙️ Generating voiceover with Aoede…');
+      const productionData = await this.agents.production.processContent({
+        strategy,
+        script,
+        thumbnail,
+        seo: seoData
+      });
+      this.logger.info('Production processing complete');
+
+      // Step 6: Save to database
+      this.setStatus('💾 Saving to database…');
+      const contentId = await this.db.saveProductionData(productionData);
+      this.logger.info(`Content saved with ID: ${contentId}`);
+
+      // Step 7: Schedule for publishing
+      const scheduleEntry = await this.agents.publishing.scheduleContent(productionData);
+      this.logger.info(`Content scheduled: ${scheduleEntry.publishTime}`);
+
+      // Step 8: Upload to YouTube
+      this.setStatus('🚀 Uploading to YouTube…');
+      try {
+        const published = await this.agents.publishing.publishContent(productionData.id);
+        this.logger.info(`Uploaded to YouTube: ${published.youtubeUrl}`);
+        this.generationStatus = { active: false, step: '' };
+        return {
+          contentId,
+          title: script.title,
+          scheduledFor: productionData.scheduledPublishTime,
+          youtubeUrl: published.youtubeUrl
+        };
+      } catch (uploadError) {
+        this.logger.error(`YouTube upload failed: ${uploadError.message}`);
+        this.generationStatus = { active: false, step: '' };
+        return {
+          contentId,
+          title: script.title,
+          scheduledFor: productionData.scheduledPublishTime,
+          uploadError: uploadError.message
+        };
+      }
+    } catch (err) {
+      this.generationStatus = { active: false, step: '' };
+      throw err;
+    }
   }
 
   async start() {

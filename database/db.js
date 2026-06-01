@@ -183,6 +183,15 @@ class Database {
         value TEXT NOT NULL,
         description TEXT,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )`,
+
+      // Automation Events log
+      `CREATE TABLE IF NOT EXISTS automation_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        data TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )`
     ];
 
@@ -315,8 +324,8 @@ class Database {
   // Production methods
   async saveProductionData(production) {
     await this.executeQuery(
-      `INSERT INTO productions (
-        id, status, assets, timeline, scheduled_publish_time, 
+      `INSERT OR REPLACE INTO productions (
+        id, status, assets, timeline, scheduled_publish_time,
         priority, estimated_duration
       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -329,6 +338,7 @@ class Database {
         production.estimatedDuration
       ]
     );
+    return production.id;
   }
 
   async updateProductionData(production) {
@@ -641,6 +651,45 @@ class Database {
     } catch (error) {
       return 'Unknown';
     }
+  }
+
+  // Save a published video's YouTube ID for later analytics tracking
+  async savePublishedVideo({ youtubeId, title, topic }) {
+    const id = this.generateId('perf');
+    await this.executeQuery(
+      `INSERT OR IGNORE INTO content_history (id, title, topic, content_type, publish_date, youtube_id)
+       VALUES (?, ?, ?, 'short', datetime('now'), ?)`,
+      [id, title, topic, youtubeId]
+    );
+  }
+
+  // Update view counts for all tracked videos
+  async updateVideoViews(youtubeId, views, likes) {
+    await this.executeQuery(
+      `UPDATE content_history SET views = ?, likes = ? WHERE youtube_id = ?`,
+      [views, likes, youtubeId]
+    );
+  }
+
+  // Get all published videos that have a YouTube ID
+  async getTrackedVideos() {
+    return this.getAllRows(
+      `SELECT youtube_id, title, topic, views FROM content_history
+       WHERE youtube_id IS NOT NULL ORDER BY publish_date DESC`
+    );
+  }
+
+  // Return the top-performing topic keywords (by average views)
+  async getTopPerformingTopics(limit = 5) {
+    return this.getAllRows(
+      `SELECT topic, AVG(views) as avg_views, COUNT(*) as count
+       FROM content_history
+       WHERE youtube_id IS NOT NULL AND views > 0
+       GROUP BY topic
+       ORDER BY avg_views DESC
+       LIMIT ?`,
+      [limit]
+    );
   }
 }
 

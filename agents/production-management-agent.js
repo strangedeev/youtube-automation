@@ -2,6 +2,10 @@ const path = require('path');
 const fs = require('fs').promises;
 const { Logger } = require('../utils/logger');
 const { AIVideoGenerator } = require('../utils/ai-video-generator');
+const { GeminiTTS } = require('../utils/gemini-tts');
+const { VideoAssembler } = require('../utils/video-assembler');
+const { CaptionRenderer } = require('../utils/caption-renderer');
+const { RedditCard } = require('../utils/reddit-card');
 
 class ProductionManagementAgent {
   constructor(db, credentials) {
@@ -11,6 +15,18 @@ class ProductionManagementAgent {
     this.pipeline = [];
     this.assets = new Map();
     this.aiVideoGenerator = new AIVideoGenerator(credentials);
+    this.captionRenderer = new CaptionRenderer();
+    this.redditCard = new RedditCard();
+    this.channelName = credentials.credentials?.channel?.channelName || 'Storytime';
+
+    const geminiKey = credentials.credentials?.gemini?.apiKey;
+    if (geminiKey) {
+      this.tts = new GeminiTTS(geminiKey);
+      this.logger.info('Gemini TTS initialized');
+    }
+    const pexelsKey = credentials.credentials?.pexels?.apiKey;
+    const pixabayKey = credentials.credentials?.pixabay?.apiKey;
+    this.videoAssembler = new VideoAssembler(pexelsKey, pixabayKey);
   }
 
   async initialize() {
@@ -143,26 +159,29 @@ class ProductionManagementAgent {
   }
 
   formatScriptForTTS(script) {
+    // If Gemini wrote a clean narration field, use it directly — no wrapping, no filler.
+    // This is the word-for-word text the TTS should speak.
+    if (script.narration && script.narration.trim().length > 20) {
+      return script.narration.trim();
+    }
+
+    // Legacy fallback for older scripts without narration field
     let ttsText = '';
-    
-    // Add hook
-    if (script.hook) {
+
+    // Hook
+    if (script.hook?.text) {
       ttsText += `${script.hook.text}\n\n`;
     }
-    
-    // Add introduction
-    if (script.introduction) {
-      ttsText += `${script.introduction.greeting}\n`;
-      ttsText += `${script.introduction.topicIntro}\n`;
-      ttsText += `${script.introduction.valueProposition}\n`;
-      ttsText += `${script.introduction.credibility}\n\n`;
+
+    // Introduction greeting only — skip the hardcoded filler lines
+    if (script.introduction?.greeting) {
+      ttsText += `${script.introduction.greeting}\n\n`;
     }
-    
-    // Add main content
-    if (script.mainContent && script.mainContent.sections) {
-      script.mainContent.sections.forEach((section, index) => {
-        ttsText += `Section ${index + 1}: ${section.title}\n`;
-        
+
+    // Main content — sections
+    if (script.mainContent?.sections) {
+      script.mainContent.sections.forEach(section => {
+        // Skip section header labels — they read out badly as "Section 1: undefined"
         if (Array.isArray(section.content)) {
           section.content.forEach(line => {
             if (typeof line === 'string' && !line.startsWith('[')) {
@@ -172,38 +191,29 @@ class ProductionManagementAgent {
         } else if (section.steps) {
           section.steps.forEach(step => {
             ttsText += `${step.title}. ${step.description}\n`;
-            ttsText += `${step.tip}\n`;
           });
         } else if (section.items) {
           section.items.forEach(item => {
-            ttsText += `Number ${item.number}: ${item.title}. ${item.description}\n`;
+            ttsText += `${item.title}. ${item.description}\n`;
           });
         } else if (typeof section.content === 'string') {
           ttsText += `${section.content}\n`;
         }
-        
         ttsText += '\n';
       });
     }
-    
-    // Add conclusion
-    if (script.conclusion) {
-      script.conclusion.recap.forEach(line => {
-        if (typeof line === 'string') {
-          ttsText += `${line}\n`;
-        }
-      });
-      ttsText += `\n${script.conclusion.finalThought}\n\n`;
+
+    // Conclusion
+    if (script.conclusion?.finalThought) {
+      ttsText += `${script.conclusion.finalThought}\n\n`;
     }
-    
-    // Add CTA
-    if (script.callToAction) {
+
+    // CTA — just the subscribe line if set, skip the rest
+    if (script.callToAction?.subscribe) {
       ttsText += `${script.callToAction.subscribe}\n`;
-      ttsText += `${script.callToAction.like}\n`;
-      ttsText += `${script.callToAction.comment}\n`;
     }
-    
-    return ttsText;
+
+    return ttsText.trim();
   }
 
   async processThumbnail(thumbnail) {
@@ -404,32 +414,40 @@ class ProductionManagementAgent {
   }
 
   async generateAudioNarration(productionData) {
-    this.logger.info('Generating AI audio narration...');
-    
+    this.logger.info('Generating audio narration with Gemini TTS...');
+
+    if (!this.tts) {
+      this.logger.warn('Gemini TTS not available, simulating audio');
+      return await this.simulateAudioGeneration(productionData);
+    }
+
     try {
-      const { script } = productionData;
-      const audioPath = path.join(__dirname, '..', 'data', 'audio', `${productionData.id}_narration.mp3`);
-      
-      // Read the TTS script
+      const audioPathBase = path.join(__dirname, '..', 'data', 'audio', `${productionData.id}_narration.wav`);
       const ttsText = await fs.readFile(productionData.assets.script.ttsPath, 'utf8');
-      
-      // Generate audio using AI TTS
-      await this.aiVideoGenerator.generateTTSAudio(ttsText, audioPath);
-      
+
+      const audioPath = await this.tts.generate(ttsText, audioPathBase);
+
       productionData.assets.audio = {
         path: audioPath,
         duration: productionData.estimatedDuration,
         format: 'mp3',
-        generatedWith: 'AI',
+        generatedWith: 'Gemini TTS',
         quality: 'high'
       };
-      
       productionData.timeline.audioGenerated = new Date().toISOString();
-      
       return audioPath;
     } catch (error) {
-      this.logger.error('AI audio generation failed:', error);
-      // Fallback to simulation
+      // Extract the real error — Axios errors hide details in error.response.data
+      const status  = error.response?.status;
+      const apiMsg  = error.response?.data?.error?.message || error.response?.data?.message || '';
+      const fullMsg = apiMsg || error.message || JSON.stringify(error.response?.data || '');
+      this.logger.error(`Gemini TTS failed [${status || 'no-status'}]: ${fullMsg}`);
+
+      // If rate limited, throw so the retry wrapper in daily-automation can back off and retry
+      if (status === 429 || fullMsg.includes('429')) {
+        throw new Error(`TTS rate limited (429) — will retry: ${fullMsg}`);
+      }
+      // For other errors (network blip etc), fall back to simulation
       return await this.simulateAudioGeneration(productionData);
     }
   }
@@ -547,7 +565,7 @@ class ProductionManagementAgent {
     
     // Conclusion
     if (script.conclusion) {
-      const conclusionText = script.conclusion.recap.join(' ') + ' ' + script.conclusion.finalThought;
+      const conclusionText = (Array.isArray(script.conclusion.recap) ? script.conclusion.recap.join(' ') : '') + ' ' + (script.conclusion.finalThought || '');
       processText(conclusionText, currentTime, 30);
       currentTime += 30;
     }
@@ -556,36 +574,102 @@ class ProductionManagementAgent {
   }
 
   async assembleVideo(productionData) {
-    this.logger.info('Assembling final AI-generated video...');
-    
+    this.logger.info('Assembling video with ffmpeg...');
+
+    // Skip if audio is simulated (no real audio file)
+    if (productionData.assets.audio?.simulated) {
+      this.logger.warn('Audio is simulated — skipping real video assembly');
+      return await this.simulateVideoAssembly(productionData);
+    }
+
     try {
+      const title = productionData.script?.title || 'Vid Shock';
+      const topic = productionData.strategy?.topic || title;
+      const bgBasePath = path.join(__dirname, '..', 'data', 'assets', `${productionData.id}_bg.jpg`);
       const finalVideoPath = path.join(__dirname, '..', 'data', 'videos', `${productionData.id}_final.mp4`);
-      
-      // Use AI Video Generator to create the final video
-      await this.aiVideoGenerator.generateVideo(
-        productionData.script,
-        productionData.assets.video.visualAssets || [],
-        productionData.assets.audio.path,
-        finalVideoPath
+
+      // 1. Prepare background (random gameplay/lifestyle clip)
+      const bgResult = await this.videoAssembler.createBackground(topic, title, bgBasePath);
+      this.logger.info(`Background ready (${bgResult.type})`);
+
+      // 1b. Build Phase 2 overlays — captions, reddit card, music bed.
+      // All optional: if any step fails the video still assembles without it.
+      const audioPath = productionData.assets.audio.path;
+      const capWorkDir = path.join(__dirname, '..', 'data', 'assets', `${productionData.id}_cap`);
+      const extras = {};
+
+      // Captions (whisper → transparent caption track)
+      try {
+        const dur = await this.videoAssembler.getAudioDuration(audioPath);
+        const cap = await this.captionRenderer.generate(audioPath, capWorkDir, productionData.id, dur);
+        if (cap) extras.captionTrack = cap.trackPath;
+      } catch (e) { this.logger.warn(`Captions skipped: ${e.message}`); }
+
+      // Reddit intro card (from the script's cardText)
+      try {
+        const cardText = productionData.script?.cardText;
+        if (cardText) {
+          const cardPath = path.join(__dirname, '..', 'data', 'assets', `${productionData.id}_card.png`);
+          await this.redditCard.render(cardText, this.channelName, cardPath);
+          extras.cardPath = cardPath;
+          extras.cardDuration = 5;
+        }
+      } catch (e) { this.logger.warn(`Reddit card skipped: ${e.message}`); }
+
+      // Background music bed (any .mp3 in data/music/, picked at random)
+      try {
+        const musicDir = path.join(__dirname, '..', 'data', 'music');
+        const tracks = (await fs.readdir(musicDir).catch(() => []))
+          .filter(f => /\.(mp3|m4a|wav|aac)$/i.test(f));
+        if (tracks.length) {
+          extras.musicPath = path.join(musicDir, tracks[Math.floor(Math.random() * tracks.length)]);
+          this.logger.info(`Background music: ${path.basename(extras.musicPath)}`);
+        }
+      } catch (_) {}
+
+      // 2. Assemble final video with all overlays
+      const result = await this.videoAssembler.assemble(
+        bgResult,
+        audioPath,
+        finalVideoPath,
+        extras
       );
-      
-      // Get file stats
-      const stats = await fs.stat(finalVideoPath);
-      
+
+      // Clean up caption working files
+      await fs.rm(capWorkDir, { recursive: true, force: true }).catch(() => {});
+
       productionData.assets.finalVideo = {
         path: finalVideoPath,
-        fileSize: stats.size,
-        duration: productionData.estimatedDuration,
-        generatedWith: 'AI',
+        fileSize: result.size,
+        duration: `${Math.round(result.duration / 60)}:${String(Math.round(result.duration % 60)).padStart(2, '0')}`,
         resolution: '1920x1080',
         format: 'mp4'
       };
-      
-      this.logger.info('AI video assembly complete');
+      productionData.timeline.videoGenerated = new Date().toISOString();
+      this.logger.info(`Video assembled: ${(result.size / 1024 / 1024).toFixed(1)} MB`);
+
+      // Generate custom thumbnail — gameplay frame + Hindi title text overlay.
+      // The video itself stays pure gameplay; this is a separate 1280×720 image
+      // uploaded to YouTube via thumbnails.set() right after the video upload.
+      const thumbnailPath = path.join(__dirname, '..', 'data', 'assets', `${productionData.id}_thumb.jpg`);
+      const gameplaySource = bgResult.gameplayPath || finalVideoPath;
+      const thumbResult = await this.videoAssembler.generateThumbnail(
+        gameplaySource,
+        title,
+        thumbnailPath
+      );
+      if (thumbResult) {
+        productionData.assets.thumbnail = {
+          path: thumbResult,
+          dimensions: { width: 1280, height: 720 },
+          format: 'jpg'
+        };
+        this.logger.info('Custom thumbnail ready');
+      }
+
       return finalVideoPath;
     } catch (error) {
-      this.logger.error('AI video assembly failed:', error);
-      // Fallback to simulation
+      this.logger.error('Video assembly failed:', error.message);
       return await this.simulateVideoAssembly(productionData);
     }
   }

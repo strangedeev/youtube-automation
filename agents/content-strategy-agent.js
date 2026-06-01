@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Logger } = require('../utils/logger');
 
 class ContentStrategyAgent {
@@ -9,6 +10,12 @@ class ContentStrategyAgent {
     this.trendingTopics = [];
     this.competitorData = [];
     this.contentCalendar = [];
+
+    const geminiKey = credentials.credentials?.gemini?.apiKey;
+    if (geminiKey) {
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      this.gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    }
   }
 
   async initialize() {
@@ -168,17 +175,20 @@ class ContentStrategyAgent {
   mergeTrendData(trends, competitors) {
     const mergedTopics = new Map();
 
-    // Add trending topics
+    // Add trending topics — use full cleaned titles as topics, not individual words
     trends.forEach(trend => {
-      const keywords = this.extractKeywords(trend.title);
-      keywords.forEach(keyword => {
-        if (!mergedTopics.has(keyword)) {
-          mergedTopics.set(keyword, { score: 0, sources: [] });
-        }
-        const topic = mergedTopics.get(keyword);
-        topic.score += trend.viewCount / 1000000; // Normalize by millions
-        topic.sources.push('trending');
-      });
+      const topic = trend.title
+        .replace(/\s*[\|#@]\s*.*/g, '')   // strip | # @ suffixes
+        .replace(/\s*[-–]\s*\w+TV$|\s*[-–]\s*\w+Channel$/i, '') // strip channel names
+        .replace(/["""'']/g, '')
+        .trim();
+      if (!topic || topic.length < 5) return;
+      if (!mergedTopics.has(topic)) {
+        mergedTopics.set(topic, { score: 0, sources: [] });
+      }
+      const topicData = mergedTopics.get(topic);
+      topicData.score += trend.viewCount / 1000000;
+      topicData.sources.push('trending');
     });
 
     // Add competitor topics
@@ -202,25 +212,321 @@ class ContentStrategyAgent {
       .slice(0, 50);
   }
 
+  // ── Reddit story fetching ─────────────────────────────────────────────────
+  // Pulls a top post from one of the high-performing story subreddits.
+  // Returns { topic, fullStory, subreddit, redditId, score, url } or null.
+  // Score a Reddit post for its video potential.
+  // Returns 0-100. Higher = better story for YouTube Shorts narration.
+  scoreStoryQuality(post) {
+    const text = (post.title + ' ' + post.selftext).toLowerCase();
+    let score = 0;
+
+    // ── Conflict / antagonist signals ────────────────────────────────────
+    // Good stories have a clear bad guy or unfair situation
+    const conflictWords = ['refused', 'told me', 'she said', 'he said', 'they said',
+      'threatened', 'accused', 'fired', 'kicked out', 'dumped', 'cheated',
+      'stolen', 'lied', 'manipulated', 'blocked', 'excluded', 'humiliated'];
+    conflictWords.forEach(w => { if (text.includes(w)) score += 4; });
+
+    // ── Resolution / satisfying ending signals ───────────────────────────
+    // Stories with a payoff retain viewers to the end
+    const resolutionWords = ['so i', 'ended up', 'finally', 'turns out', 'update:',
+      'karma', 'got fired', 'apologised', 'apologized', 'called the police',
+      'left him', 'left her', 'broke up', 'revenge', 'justice', 'won',
+      'paid back', 'exposed', 'caught'];
+    resolutionWords.forEach(w => { if (text.includes(w)) score += 5; });
+
+    // ── Emotional escalation signals ─────────────────────────────────────
+    const emotionWords = ['unbelievable', 'furious', 'shocked', 'disgusted',
+      'devastated', 'livid', 'betrayed', 'heartbroken', 'humiliated', 'outraged'];
+    emotionWords.forEach(w => { if (text.includes(w)) score += 3; });
+
+    // ── Reddit verdict posts (AITA, AITAH) tend to have clean story arcs ─
+    if (/\b(aita|aitah|wibta)\b/.test(text)) score += 10;
+
+    // ── Length sweet spot: 500-6000 chars = 1-4 min narration ───────────
+    const len = post.selftext.length;
+    if (len >= 500 && len <= 6000) score += 15;
+    else if (len > 6000 && len <= 15000) score += 8;
+    else if (len > 15000) score += 3;   // very long but still usable
+
+    // ── Popularity signal ────────────────────────────────────────────────
+    if (post.score >= 5000) score += 10;
+    else if (post.score >= 1000) score += 6;
+    else if (post.score >= 500) score += 3;
+
+    return Math.min(100, score);
+  }
+
+  async fetchRedditStory() {
+    const subreddits = [
+      'AmItheAsshole',
+      'AITAH',
+      'tifu',
+      'pettyrevenge',
+      'MaliciousCompliance',
+      'ProRevenge',
+      'NuclearRevenge',
+      'relationship_advice',
+      'entitledparents',
+      'ChoosingBeggars',
+      'antiwork',
+      'TalesFromRetail',
+      'TalesFromTechSupport',
+      'IDontWorkHereLady',
+      'confessions',
+      'TrueOffMyChest',
+      'AmIOverreacting'
+    ];
+
+    // Shuffle so we don't always hit the same subreddit first
+    const shuffled = subreddits.sort(() => Math.random() - 0.5);
+    const recentTopics = this.getRecentTopics();
+
+    // Try every subreddit until we find a qualifying post — don't give up after one
+    for (const sub of shuffled) {
+      const url = `https://www.reddit.com/r/${sub}/top.json?t=week&limit=50&raw_json=1`;
+
+      try {
+        this.logger.info(`Fetching Reddit stories from r/${sub}...`);
+        const response = await axios.get(url, {
+          headers: { 'User-Agent': 'VidShockBot/1.0 (youtube automation)' },
+          timeout: 15000
+        });
+
+        const posts = response.data?.data?.children || [];
+
+        // Filter: basic quality gates — no length cap, let scoring decide
+        const candidates = posts
+          .map(p => p.data)
+          .filter(p =>
+            p.is_self &&
+            p.selftext &&
+            p.selftext !== '[removed]' &&
+            p.selftext !== '[deleted]' &&
+            p.selftext.length > 300 &&    // minimum: enough to narrate
+            p.score > 100 &&
+            !p.stickied &&
+            !p.over_18 &&
+            !recentTopics.includes(p.title)
+          )
+          // Score each post and sort by story quality, not just upvotes
+          .map(p => ({ ...p, _storyScore: this.scoreStoryQuality(p) }))
+          .sort((a, b) => b._storyScore - a._storyScore);
+
+        if (!candidates.length) {
+          this.logger.warn(`No suitable posts in r/${sub}, trying next...`);
+          continue;
+        }
+
+        // Only consider posts with a minimum story score — skip low-quality vents
+        const goodCandidates = candidates.filter(p => p._storyScore >= 20);
+        if (!goodCandidates.length) {
+          this.logger.warn(`Posts in r/${sub} scored too low, trying next...`);
+          continue;
+        }
+
+        // Pick from top 3 best-scoring posts for variety
+        const pick = goodCandidates[Math.floor(Math.random() * Math.min(3, goodCandidates.length))];
+        this.logger.info(`Selected: "${pick.title}" (score: ${pick.score}, story: ${pick._storyScore}/100) from r/${sub}`);
+
+        return {
+          topic: pick.title,
+          fullStory: pick.selftext,
+          subreddit: sub,
+          redditId: pick.id,
+          score: pick.score,
+          storyScore: pick._storyScore,
+          url: `https://www.reddit.com${pick.permalink}`
+        };
+      } catch (err) {
+        this.logger.warn(`Reddit fetch failed for r/${sub}: ${err.message}`);
+        continue;
+      }
+    }
+
+    this.logger.warn('All subreddits exhausted — no Reddit story found, falling back to fact topic');
+    return null;
+  }
+
+  // ── Original story premise selection ─────────────────────────────────────
+  // The channel now runs on ORIGINAL stories written from scratch — same model
+  // as the channels that actually win this niche (e.g. BrokenStories, who state
+  // outright "I write every story from scratch"). Real Reddit posts are messy,
+  // poorly structured, and give us no control over the hook. Original premises
+  // let us engineer every beat: a clean conflict, a sharp twist, a payoff.
+  //
+  // This method only PICKS a premise. The full story is written by the script
+  // writer via NIM (Llama 4 Maverick) so all the creative generation lives in
+  // one place. We pick a category, then a specific situation within it — this
+  // keeps the content varied across the emotional themes that drive watch time.
+  selectStoryPremise() {
+    const premiseBank = {
+      'Relationship Betrayal': [
+        'My girlfriend was caught cheating, and her excuse made it ten times worse',
+        'My husband has been hiding a second phone for our entire marriage',
+        'I found my fiancé\'s secret dating profile a week before the wedding',
+        'My wife\'s "work trips" were not work trips, and the truth gutted me',
+        'My partner\'s best friend told me a secret that ended our relationship'
+      ],
+      'Family Drama': [
+        'My parents are gold diggers and they tried to use my inheritance',
+        'My sister stole my identity and lived a double life for years',
+        'My mother chose my abuser over me, and I finally walked away',
+        'My in-laws hired a private investigator to dig up dirt before my wedding',
+        'My brother forged our late father\'s will and nearly got away with it'
+      ],
+      'Workplace Injustice': [
+        'My boss fired me for a mistake he actually made five years ago',
+        'I caught my coworkers running a betting pool on my divorce',
+        'My manager stole my project, took the promotion, then asked for my help',
+        'HR sided with my harasser until I showed them what I had recorded',
+        'I trained my replacement before realizing they were hired to replace me'
+      ],
+      'Neighbor & Stranger': [
+        'I caught my neighbor using my backyard for illegal midnight deliveries',
+        'My landlord installed hidden microphones to spy on every tenant',
+        'A stranger at my door knew details about my life he should not have',
+        'My new neighbor slowly tried to claim half of my property as theirs',
+        'The friendly old man next door was not who everyone thought he was'
+      ],
+      'Dark Discovery': [
+        'I found a hidden camera in a gift from my lifelong best friend',
+        'I found journals proving my late father led a completely different life',
+        'I inherited a locked safe and its contents destroyed my family',
+        'I discovered the charity I donated to for years was completely fabricated',
+        'My therapist was using my trauma as plots for her bestselling novels'
+      ],
+      'Friendship Betrayal': [
+        'My closest friend has been secretly dating my ex for two years',
+        'My childhood best friend opened credit cards in my name across three states',
+        'My maid of honor tried to sabotage my wedding to take my place',
+        'My best friend faked an entire illness for sympathy and money',
+        'The friend I supported through everything testified against me in court'
+      ]
+    };
+
+    const categories = Object.keys(premiseBank);
+    const recentTopics = this.getRecentTopics();
+
+    // Flatten to (category, premise) pairs, prefer ones not recently used
+    const allPairs = categories.flatMap(cat =>
+      premiseBank[cat].map(premise => ({ category: cat, premise }))
+    );
+    const fresh = allPairs.filter(p => !recentTopics.includes(p.premise));
+    const pool  = fresh.length > 0 ? fresh : allPairs;
+    const pick  = pool[Math.floor(Math.random() * pool.length)];
+
+    this.logger.info(`Selected original premise [${pick.category}]: "${pick.premise}"`);
+    return {
+      topic:       pick.premise,
+      premise:     pick.premise,
+      category:    pick.category,
+      isOriginal:  true
+    };
+  }
+
+  async generateViralShortsTopic() {
+    if (!this.gemini) return null;
+
+    const recentTopics = this.getRecentTopics();
+    const avoidList = recentTopics.length > 0
+      ? `\nAvoid these recently used topics: ${recentTopics.slice(0, 5).join(', ')}`
+      : '';
+
+    // Pull top-performing topic categories from the DB to bias future topics
+    let performanceHint = '';
+    try {
+      const topPerformers = await this.db.getTopPerformingTopics(3);
+      if (topPerformers.length > 0) {
+        const examples = topPerformers.map(t => `"${t.topic}" (avg ${Math.round(t.avg_views)} views)`).join(', ');
+        performanceHint = `\nOur best-performing topics so far: ${examples}. Lean into similar subject areas.`;
+      }
+    } catch (_) {}
+
+
+    // Use currently trending YouTube titles to inform topic selection
+    let trendingContext = '';
+    try {
+      const trending = await this.fetchYouTubeTrends();
+      if (trending.length > 0) {
+        const titles = trending
+          .sort((a, b) => b.viewCount - a.viewCount)
+          .slice(0, 8)
+          .map(t => `"${t.title}"`)
+          .join(', ');
+        trendingContext = `\n\nCurrently trending on YouTube (high viewcount right now): ${titles}.\nIf any of these suggest a real historical, scientific, or psychological angle worth exploring — use them as a springboard. For example, if "Titanic" is trending, don't cover the sinking — cover "The Metallurgical Flaw That Made Titanic's Hull Shatter Instead Of Bend". If nothing is relevant, ignore this list entirely.`;
+      }
+    } catch (_) {}
+
+    // Rotate through 10 content pillars — keeps every video feeling fresh
+    const pillars = [
+      { name: 'Psychology', hint: 'Shocking facts about how the human brain works against you — e.g. "Your brain is lying to you right now and you can\'t stop it"' },
+      { name: 'Body Horror', hint: 'Disturbing things happening inside your body right now — e.g. "Right now millions of mites are living on your face"' },
+      { name: 'Animal Facts', hint: 'Impossible-sounding but real animal abilities — e.g. "This animal punches faster than a bullet"' },
+      { name: 'Space Dread', hint: 'Terrifying and mind-bending space facts — e.g. "The nearest black hole is close enough to affect Earth right now"' },
+      { name: 'True Crime', hint: 'A real crime or mystery that can be told in 20 seconds — specific names, dates, numbers only' },
+      { name: 'Dark History', hint: 'History that sounds fake but actually happened — e.g. "The Roman Emperor who declared war on the ocean"' },
+      { name: 'Impossible Science', hint: 'Proven science that sounds like a conspiracy theory — e.g. "NASA broadcast something live in 1977 they still haven\'t explained"' },
+      { name: 'Dark Side of Everyday Things', hint: 'The sinister truth behind ordinary objects or habits — e.g. "The reason your phone charger gets warm is actually terrifying"' },
+      { name: 'Social Experiments', hint: 'Famous psychology experiments and their shocking results — e.g. Stanford Prison Experiment, Milgram obedience study' },
+      { name: 'Records & Extremes', hint: 'The extreme limits of humans or nature — e.g. "The deepest free dive ever and what the diver saw at the bottom"' },
+    ];
+    const pillar = pillars[Math.floor(Math.random() * pillars.length)];
+
+    const prompt = `You are generating a topic for a viral English YouTube Shorts channel.
+
+Today's pillar: **${pillar.name}**
+Style hint: ${pillar.hint}
+
+Generate one very specific topic within this pillar. Don't stay surface-level — find a sharp, specific angle on a real event, experiment, or fact.
+
+Good examples:
+- Not "Chernobyl" but "In 1986 Soviet engineers pressed the emergency stop button on a runaway reactor — and the button itself caused the explosion"
+- Not "deep ocean" but "In 1960 two men reached the deepest point in the ocean and found a living fish nobody expected to be there"
+
+Rules:
+- Must be factual and verifiable
+- Must have one sharp specific angle that makes viewers feel "I never knew that"
+- No celebrities, movies, or pop culture
+- English only${avoidList}${performanceHint}${trendingContext}
+
+Write only the topic title — one sentence in English. No quotes, no explanation.`;
+
+    try {
+      const result = await this.gemini.generateContent(prompt);
+      const topic = result.response.text().trim().replace(/^["']|["']$/g, '');
+      this.logger.info(`Gemini generated topic: ${topic}`);
+      return topic || null;
+    } catch (error) {
+      this.logger.error('Gemini topic generation failed:', error.message);
+      return null;
+    }
+  }
+
   async generateContentStrategy(requestedTopic = null) {
     try {
       let topic, angle, targetAudience, contentType;
+      let premiseData = null;
 
       if (requestedTopic) {
+        // Manual override — treat the requested topic as an original story premise
         topic = requestedTopic;
-        angle = await this.generateAngle(topic);
+        angle = 'Original drama story';
+        premiseData = { topic: requestedTopic, premise: requestedTopic, category: 'Custom', isOriginal: true };
       } else {
-        // Select from trending topics
-        const selectedTopic = this.selectOptimalTopic();
-        topic = selectedTopic.topic;
-        angle = await this.generateAngle(topic);
+        // ── Original story premise — the channel's primary (and only) format ──
+        // The script writer turns this premise into a full original story via NIM.
+        premiseData = this.selectStoryPremise();
+        topic = premiseData.topic;
+        angle = 'Original drama story';
       }
 
       // Determine target audience
       targetAudience = await this.identifyTargetAudience(topic);
 
-      // Select content type
-      contentType = this.selectContentType(topic);
+      // Always a story now
+      contentType = 'Story';
 
       // Generate content calendar entry
       const strategy = {
@@ -232,6 +538,10 @@ class ContentStrategyAgent {
         estimatedViews: this.predictViews(topic),
         bestPublishTime: this.calculateBestPublishTime(),
         competitorAnalysis: this.getCompetitorInsights(topic),
+        // Original story fields — passed through to the script writer
+        isOriginal: true,
+        premise:    premiseData.premise,
+        category:   premiseData.category,
         createdAt: new Date().toISOString()
       };
 

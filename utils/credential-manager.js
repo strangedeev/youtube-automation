@@ -105,6 +105,7 @@ class CredentialManager {
       'https://www.googleapis.com/auth/youtube.upload',
       'https://www.googleapis.com/auth/youtube',
       'https://www.googleapis.com/auth/youtube.readonly',
+      'https://www.googleapis.com/auth/youtube.force-ssl',
       'https://www.googleapis.com/auth/yt-analytics.readonly'
     ];
 
@@ -378,17 +379,13 @@ class CredentialManager {
       // Files might not exist yet
     }
 
-    const requiredCredentials = ['youtube', 'openai'];
-    const missing = [];
-
-    for (const service of requiredCredentials) {
-      if (!this.credentials[service]) {
-        missing.push(service);
-      }
+    if (!this.credentials.youtube) {
+      console.log(chalk.yellow('\n⚠️  Missing credentials for: youtube'));
+      return false;
     }
 
-    if (missing.length > 0) {
-      console.log(chalk.yellow(`\n⚠️  Missing credentials for: ${missing.join(', ')}`));
+    if (!this.credentials.openai && !this.credentials.gemini) {
+      console.log(chalk.yellow('\n⚠️  Missing credentials for: openai or gemini'));
       return false;
     }
 

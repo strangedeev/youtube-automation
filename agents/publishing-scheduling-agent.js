@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const { Logger } = require('../utils/logger');
 
@@ -106,22 +107,37 @@ class PublishingSchedulingAgent {
     }
   }
 
+  sanitizeTags(tags) {
+    if (!Array.isArray(tags)) return [];
+    const cleaned = tags
+      .map(t => String(t).replace(/[<>]/g, '').trim())
+      .filter(t => t.length > 0 && t.length <= 30);
+    // Keep tags until total length hits 500 chars
+    const result = [];
+    let total = 0;
+    for (const tag of cleaned) {
+      if (total + tag.length + 1 > 500) break;
+      result.push(tag);
+      total += tag.length + 1;
+    }
+    return result;
+  }
+
   async uploadToYouTube(scheduleEntry) {
     const { metadata } = scheduleEntry;
-    
+
     // Prepare video metadata
     const videoMetadata = {
       snippet: {
-        title: metadata.seo.title,
-        description: metadata.seo.description,
-        tags: metadata.seo.tags,
+        title: metadata.seo.title.slice(0, 100),
+        description: metadata.seo.description.slice(0, 5000),
+        tags: this.sanitizeTags(metadata.seo.tags),
         categoryId: metadata.seo.metadata.category.toString(),
         defaultLanguage: metadata.seo.metadata.language,
         defaultAudioLanguage: metadata.seo.metadata.language
       },
       status: {
-        privacyStatus: process.env.DEFAULT_PRIVACY_STATUS || 'public',
-        publishAt: scheduleEntry.publishTime,
+        privacyStatus: 'public',
         selfDeclaredMadeForKids: false
       }
     };
@@ -137,28 +153,67 @@ class PublishingSchedulingAgent {
     
     const videoId = videoUpload.data.id;
     this.logger.info(`Video uploaded with ID: ${videoId}`);
-    
+
     // Upload thumbnail
     if (metadata.thumbnail && metadata.thumbnail.path) {
       await this.uploadThumbnail(videoId, metadata.thumbnail.path);
     }
-    
+
     // Upload captions
     if (metadata.captions && metadata.captions.path) {
       await this.uploadCaptions(videoId, metadata.captions.path);
     }
-    
+
+    // Post first comment to seed early engagement
+    await this.postFirstComment(videoId, scheduleEntry.title);
+
     return videoUpload.data;
   }
 
+  async postFirstComment(videoId, title) {
+    // Reddit drama engagement hooks — drives verdicts and replies in the first hour.
+    // Phrased to match the content: story-based, judgment-seeking, relatable.
+    const comments = [
+      'NTA or YTA? Drop your verdict 👇 I read every single one.',
+      'What would YOU have done in this situation? 👇',
+      'The audacity 😤 Comment if you\'ve dealt with someone like this.',
+      'Were they wrong or am I missing something? 👇',
+      'Drop a ✅ if they were right or ❌ if they went too far.',
+      'This one got me. Would you have handled it the same way? 👇',
+      'The ending 😭 Comment your reaction below, I reply to everyone.'
+    ];
+
+    const comment = comments[Math.floor(Math.random() * comments.length)];
+
+    try {
+      await this.youtube.commentThreads.insert({
+        part: 'snippet',
+        requestBody: {
+          snippet: {
+            videoId,
+            topLevelComment: {
+              snippet: { textOriginal: comment }
+            }
+          }
+        }
+      });
+      this.logger.info(`Posted first comment on ${videoId}`);
+    } catch (error) {
+      // Non-fatal — log and move on
+      this.logger.warn(`Could not post first comment: ${error.message}`);
+    }
+  }
+
   async getVideoStream(videoPath) {
-    // In a real implementation, this would return a file stream
-    // For now, we'll simulate it
-    return JSON.stringify({
-      message: 'Video stream would be provided here',
-      path: videoPath,
-      timestamp: new Date().toISOString()
-    });
+    if (!videoPath || videoPath.endsWith('.json') || videoPath.endsWith('.info')) {
+      throw new Error(`No real video file available at: ${videoPath}`);
+    }
+    try {
+      await fs.access(videoPath);
+    } catch {
+      throw new Error(`Video file not found: ${videoPath}`);
+    }
+    return fsSync.createReadStream(videoPath);
   }
 
   async uploadThumbnail(videoId, thumbnailPath) {

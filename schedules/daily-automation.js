@@ -23,12 +23,12 @@ class DailyAutomation {
   }
 
   async setupScheduledTasks() {
-    // Daily content generation at 6:00 AM
-    this.scheduledTasks.set('daily-content-generation', 
-      cron.schedule('0 6 * * *', async () => {
-        if (this.isEnabled) {
-          await this.runDailyContentGeneration();
-        }
+    // One video per day at 12:00 PM — new channels benefit from giving
+    // YouTube time to find the right audience between uploads rather than
+    // flooding the algorithm before it has figured out who to show us to.
+    this.scheduledTasks.set('daily-content-generation',
+      cron.schedule('0 12 * * *', async () => {
+        if (this.isEnabled) await this.runDailyContentGeneration();
       }, { scheduled: false })
     );
 
@@ -46,6 +46,15 @@ class DailyAutomation {
       cron.schedule('0 9 * * *', async () => {
         if (this.isEnabled) {
           await this.collectDailyAnalytics();
+        }
+      }, { scheduled: false })
+    );
+
+    // Weekly performance sync — every Sunday at 8:00 AM
+    this.scheduledTasks.set('weekly-performance-sync',
+      cron.schedule('0 8 * * 0', async () => {
+        if (this.isEnabled) {
+          await this.syncVideoPerformance();
         }
       }, { scheduled: false })
     );
@@ -84,26 +93,46 @@ class DailyAutomation {
     });
   }
 
+  // Retry helper — waits 60s between attempts so transient API errors can clear
+  async withRetry(fn, label, maxAttempts = 3) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (attempt === maxAttempts) throw error;
+        const delaySec = attempt * 60;
+        this.logger.warn(`${label} failed (attempt ${attempt}/${maxAttempts}) — retrying in ${delaySec}s: ${error.message}`);
+        await new Promise(r => setTimeout(r, delaySec * 1000));
+      }
+    }
+  }
+
   async runDailyContentGeneration() {
     try {
       this.logger.info('Starting daily content generation...');
-      
+
       const timer = this.logger.startTimer('Daily Content Generation');
-      
+
       // Check if we should generate content today
       const shouldGenerate = await this.shouldGenerateContentToday();
-      
+
       if (!shouldGenerate) {
         this.logger.info('Skipping content generation - sufficient content in pipeline');
         return;
       }
 
-      // Generate content strategy
-      const strategy = await this.agents.strategy.generateContentStrategy();
+      // Generate content strategy (retry up to 3x — Gemini can occasionally time out)
+      const strategy = await this.withRetry(
+        () => this.agents.strategy.generateContentStrategy(),
+        'Strategy generation'
+      );
       this.logger.info(`Generated strategy: ${strategy.topic}`);
 
-      // Generate script
-      const script = await this.agents.scriptWriter.generateScript(strategy);
+      // Generate script (retry up to 3x)
+      const script = await this.withRetry(
+        () => this.agents.scriptWriter.generateScript(strategy),
+        'Script generation'
+      );
       this.logger.info(`Generated script: ${script.title}`);
 
       // Generate thumbnail
@@ -114,37 +143,48 @@ class DailyAutomation {
       const seoData = await this.agents.seoOptimizer.optimize(script, strategy);
       this.logger.info('Completed SEO optimization');
 
-      // Process through production
-      const productionData = await this.agents.production.processContent({
-        strategy,
-        script,
-        thumbnail,
-        seo: seoData
-      });
+      // Process through production (TTS + video — retry up to 3x)
+      const productionData = await this.withRetry(
+        () => this.agents.production.processContent({ strategy, script, thumbnail, seo: seoData }),
+        'Production'
+      );
       this.logger.info(`Production completed: ${productionData.id}`);
 
-      // Schedule for publishing
+      // Schedule and immediately upload to YouTube (retry up to 3x)
       await this.agents.publishing.scheduleContent(productionData);
       this.logger.info('Content scheduled for publishing');
+
+      const published = await this.withRetry(
+        () => this.agents.publishing.publishContent(productionData.id),
+        'YouTube upload'
+      );
+      this.logger.info(`Uploaded to YouTube: ${published.youtubeUrl}`);
+
+      // Track the video for performance analytics
+      if (published.youtubeId) {
+        await this.db.savePublishedVideo({
+          youtubeId: published.youtubeId,
+          title: script.title,
+          topic: strategy.topic
+        });
+      }
 
       timer.end();
       this.logger.success('Daily content generation completed successfully');
 
-      // Log the event
       await this.logAutomationEvent('daily_content_generation', 'success', {
         contentId: productionData.id,
         topic: strategy.topic,
-        scheduledFor: productionData.scheduledPublishTime
+        youtubeUrl: published.youtubeUrl
       });
 
     } catch (error) {
-      this.logger.error('Daily content generation failed:', error);
-      
+      this.logger.error('Daily content generation failed after all retries:', error);
+
       await this.logAutomationEvent('daily_content_generation', 'error', {
         error: error.message
       });
 
-      // Send notification about failure
       await this.sendFailureNotification('Daily Content Generation', error);
     }
   }
@@ -466,11 +506,40 @@ class DailyAutomation {
   }
 
   async sendFailureNotification(taskName, error) {
-    // This would integrate with notification services (email, Slack, etc.)
     this.logger.error(`AUTOMATION FAILURE - ${taskName}: ${error.message}`);
-    
-    // Could send webhook notification, email, etc.
-    // For now, just log it prominently
+  }
+
+  async syncVideoPerformance() {
+    this.logger.info('Syncing video performance from YouTube...');
+    try {
+      const youtube = this.agents.publishing.youtube;
+      if (!youtube) return;
+
+      const tracked = await this.db.getTrackedVideos();
+      if (!tracked.length) {
+        this.logger.info('No tracked videos yet, skipping performance sync');
+        return;
+      }
+
+      // Fetch stats in batches of 50 (YouTube API limit)
+      const ids = tracked.map(v => v.youtube_id).filter(Boolean);
+      for (let i = 0; i < ids.length; i += 50) {
+        const batch = ids.slice(i, i + 50);
+        const res = await youtube.videos.list({
+          part: 'statistics',
+          id: batch.join(',')
+        });
+        for (const item of (res.data.items || [])) {
+          const views = parseInt(item.statistics.viewCount) || 0;
+          const likes = parseInt(item.statistics.likeCount) || 0;
+          await this.db.updateVideoViews(item.id, views, likes);
+          this.logger.info(`Updated ${item.id}: ${views} views`);
+        }
+      }
+      this.logger.info('Performance sync complete');
+    } catch (error) {
+      this.logger.error('Performance sync failed:', error.message);
+    }
   }
 
   startMonitoringLoop() {

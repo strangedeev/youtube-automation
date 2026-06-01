@@ -80,40 +80,18 @@ class SEOOptimizerAgent {
   }
 
   async optimizeTitle(originalTitle, strategy) {
-    // YouTube title limit: 100 characters, optimal: 60-70
-    let optimizedTitle = originalTitle;
-    
-    // Add power words if not present
-    const powerWords = ['Ultimate', 'Complete', 'Essential', 'Proven', 'Secret', 'Amazing', 'Powerful'];
-    const hasPowerWord = powerWords.some(word => 
-      originalTitle.toLowerCase().includes(word.toLowerCase())
-    );
-    
-    if (!hasPowerWord && originalTitle.length < 60) {
-      const randomPowerWord = powerWords[Math.floor(Math.random() * powerWords.length)];
-      optimizedTitle = `${randomPowerWord} ${originalTitle}`;
-    }
-    
-    // Add year if relevant and not present
-    const currentYear = new Date().getFullYear();
-    if (!optimizedTitle.includes(currentYear.toString()) && optimizedTitle.length < 70) {
-      optimizedTitle = `${optimizedTitle} (${currentYear})`;
-    }
-    
-    // Ensure primary keyword is in title
-    const primaryKeyword = strategy.keywords[0];
-    if (primaryKeyword && !optimizedTitle.toLowerCase().includes(primaryKeyword.toLowerCase())) {
-      optimizedTitle = `${optimizedTitle} - ${primaryKeyword}`;
-    }
-    
-    // Truncate if too long
+    // Strip any hashtags — hashtags in titles kill CTR and look spammy.
+    // They belong in the description only.
+    let optimizedTitle = originalTitle.replace(/#\S+/g, '').trim();
+
+    // Remove stale filler appended by older logic (year brackets, keyword dash-appends)
+    // so the AI-generated curiosity-gap title stays clean and punchy.
+
+    // Hard truncate at 100 chars (YouTube limit) — prefer clean cut at word boundary
     if (optimizedTitle.length > 100) {
-      optimizedTitle = optimizedTitle.substring(0, 97) + '...';
+      optimizedTitle = optimizedTitle.substring(0, 97).replace(/\s+\S*$/, '') + '...';
     }
-    
-    // Capitalize properly
-    optimizedTitle = this.titleCase(optimizedTitle);
-    
+
     return optimizedTitle;
   }
 
@@ -129,150 +107,83 @@ class SEOOptimizerAgent {
   }
 
   async generateDescription(script, strategy) {
-    // YouTube description limit: 5000 characters, first 125 shown in search
-    
-    let description = '';
-    
-    // First 125 characters - most important for SEO
-    const hook = `${script.title} - In this video, you'll discover ${strategy.angle.toLowerCase()}.`;
-    description += hook + '\n\n';
-    
-    // Video overview
-    description += '📺 WHAT YOU\'LL LEARN:\n';
-    if (script.mainContent && script.mainContent.sections) {
-      script.mainContent.sections.slice(0, 5).forEach(section => {
-        if (section.title) {
-          description += `• ${section.title}\n`;
-        }
-      });
-    }
-    description += '\n';
-    
-    // Timestamps/Chapters
-    description += '⏱️ TIMESTAMPS:\n';
-    description += '00:00 Introduction\n';
-    let timestamp = 20;
-    if (script.mainContent && script.mainContent.sections) {
-      script.mainContent.sections.forEach(section => {
-        const minutes = Math.floor(timestamp / 60);
-        const seconds = timestamp % 60;
-        description += `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} ${section.title || 'Section'}\n`;
-        timestamp += section.duration || 60;
-      });
-    }
-    description += '\n';
-    
-    // Keywords paragraph (SEO optimized)
-    description += '📝 ABOUT THIS VIDEO:\n';
-    description += `This comprehensive guide on ${strategy.topic} covers everything you need to know. `;
-    description += `Whether you're a beginner or advanced, you'll find valuable insights about ${strategy.keywords.slice(0, 3).join(', ')}. `;
-    description += `Perfect for ${strategy.targetAudience}.\n\n`;
-    
-    // Links section
-    description += '🔗 USEFUL LINKS:\n';
-    description += `• Subscribe: [Your Channel URL]\n`;
-    description += `• Website: ${process.env.WEBSITE_URL || '[Your Website]'}\n`;
-    description += `• Social Media: ${process.env.SOCIAL_LINKS || '[Your Social Media]'}\n\n`;
-    
-    // Related videos
-    description += '📹 RELATED VIDEOS:\n';
-    description += '• [Related Video 1]\n';
-    description += '• [Related Video 2]\n';
-    description += '• [Related Video 3]\n\n';
-    
-    // Equipment/Tools (if applicable)
-    if (strategy.contentType === 'Tutorial') {
-      description += '🛠️ TOOLS & RESOURCES MENTIONED:\n';
-      description += '• [Tool/Resource 1]\n';
-      description += '• [Tool/Resource 2]\n\n';
-    }
-    
-    // Contact/Business
-    description += '📧 BUSINESS INQUIRIES:\n';
-    description += `${process.env.BUSINESS_EMAIL || '[Your Business Email]'}\n\n`;
-    
-    // Tags/Hashtags
-    description += '🏷️ TAGS:\n';
     const hashtags = await this.generateHashtags(strategy);
-    description += hashtags.join(' ') + '\n\n';
-    
-    // Disclaimer if needed
-    description += '⚠️ DISCLAIMER:\n';
-    description += 'This video is for educational purposes only.\n\n';
-    
-    // Copyright
-    description += `© ${new Date().getFullYear()} All Rights Reserved\n`;
-    
-    // Music credits if applicable
-    description += '\n🎵 MUSIC:\n';
-    description += 'Background music from YouTube Audio Library\n';
-    
+    const hashtagLine = hashtags.slice(0, 5).join(' ');
+
+    // hook may be a string or an object — extract plain text
+    const hookText = typeof script.hook === 'string'
+      ? script.hook
+      : (script.hook?.text || script.hook?.opening || script.title);
+
+    const description = [
+      hookText,
+      '',
+      '🎬 Full story. No part 2.',
+      'Follow for a new story every day. 👇',
+      '',
+      'Disclaimer: Names and some details have been changed for anonymity.',
+      '',
+      hashtagLine
+    ].join('\n');
+
     return description;
   }
 
   async generateTags(script, strategy) {
-    const tags = new Set();
-    
-    // Add primary keywords
-    strategy.keywords.forEach(keyword => tags.add(keyword));
-    
-    // Add topic variations
-    const topic = strategy.topic.toLowerCase();
-    tags.add(topic);
-    tags.add(topic.replace(/\s+/g, ''));
-    tags.add(topic.replace(/\s+/g, '_'));
-    
-    // Add content type tags
-    const contentTypeTags = {
-      'Tutorial': ['how to', 'tutorial', 'guide', 'step by step', 'learn'],
-      'Explainer': ['explained', 'what is', 'understanding', 'explanation'],
-      'Review': ['review', 'comparison', 'vs', 'best', 'top'],
-      'List': ['top 10', 'best', 'list', 'countdown'],
-      'Story': ['story', 'journey', 'experience', 'case study']
-    };
-    
-    const typeTags = contentTypeTags[strategy.contentType] || [];
-    typeTags.forEach(tag => tags.add(tag));
-    
-    // Add year tags
-    const year = new Date().getFullYear();
-    tags.add(year.toString());
-    tags.add(`${topic} ${year}`);
-    
-    // Add niche-specific tags
-    const niche = this.identifyNiche(strategy);
-    const nicheTags = this.getNicheTags(niche);
-    nicheTags.forEach(tag => tags.add(tag));
-    
-    // Add long-tail keywords
-    const longTailKeywords = this.generateLongTailKeywords(strategy);
-    longTailKeywords.forEach(keyword => tags.add(keyword));
-    
-    // Extract tags from script content
-    if (script.keywords) {
-      script.keywords.forEach(keyword => tags.add(keyword));
-    }
-    
-    // Add channel branding tags
-    if (process.env.CHANNEL_NAME) {
-      tags.add(process.env.CHANNEL_NAME);
-    }
-    
-    // YouTube allows max 500 characters in tags, prioritize most important
-    const tagArray = Array.from(tags);
-    const prioritizedTags = this.prioritizeTags(tagArray, strategy);
-    
-    // Ensure total character count doesn't exceed 500
-    let totalLength = 0;
+    // Tags are split into 3 buckets — YouTube uses these to understand context
+    // and route the video to the right audience.
+
+    // ── BUCKET 1: Post-specific (3-4 tags) ──────────────────────────────
+    // Describe exactly what THIS video is about. Think: what would someone
+    // type into YouTube search if they wanted this exact video?
+    const topic = strategy.topic.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    const topicWords = topic.split(/\s+/).filter(w => w.length > 2);
+
+    const postSpecific = new Set();
+    postSpecific.add(topic);
+    if (topicWords.length > 1) postSpecific.add(topicWords[0]);
+    if (strategy.keywords?.[0]) postSpecific.add(strategy.keywords[0].toLowerCase());
+    if (strategy.keywords?.[1]) postSpecific.add(strategy.keywords[1].toLowerCase());
+    const postTags = [...postSpecific].slice(0, 4);
+
+    // ── BUCKET 2: Niche-specific (5-6 tags) ─────────────────────────────
+    // Reddit story / drama niche — helps YouTube file us next to similar
+    // channels so our videos surface in related/recommended feeds.
+    // "full reddit story" captures viewers burned by part 1/2/3 channels.
+    const nicheTags = [
+      'reddit stories',
+      'reddit shorts',
+      'aita',
+      'reddit drama',
+      'full reddit story',
+      'full story'
+    ];
+
+    // ── BUCKET 3: Broad / viral (3-4 tags) ──────────────────────────────
+    // High-volume generic tags that push the video into the discovery pool.
+    const broadTags = [
+      'shorts',
+      'viral shorts',
+      'trending shorts',
+      'storytime'
+    ];
+
+    // Merge: post-specific first (most signal), then niche, then broad
+    const allTags = [...postTags, ...nicheTags, ...broadTags];
+
+    // Deduplicate and enforce YouTube's 500-char total limit
+    const seen = new Set();
+    let charCount = 0;
     const finalTags = [];
-    
-    for (const tag of prioritizedTags) {
-      if (totalLength + tag.length + 1 <= 500) {
-        finalTags.push(tag);
-        totalLength += tag.length + 1; // +1 for comma separator
-      }
+    for (const tag of allTags) {
+      const t = tag.trim();
+      if (!t || seen.has(t)) continue;
+      if (charCount + t.length + 1 > 500) break;
+      seen.add(t);
+      finalTags.push(t);
+      charCount += t.length + 1;
     }
-    
+
     return finalTags;
   }
 
@@ -360,49 +271,30 @@ class SEOOptimizerAgent {
   }
 
   async generateHashtags(strategy) {
-    const hashtags = [];
-    
-    // Primary hashtag
-    const primaryHashtag = `#${strategy.topic.replace(/\s+/g, '')}`;
-    hashtags.push(primaryHashtag);
-    
-    // Content type hashtag
-    hashtags.push(`#${strategy.contentType.toLowerCase()}`);
-    
-    // Trending hashtags
-    const trendingHashtags = [
-      '#youtube',
-      '#youtuber',
-      '#subscribe',
-      '#video',
-      '#viral',
-      '#trending',
-      '#new'
+    // Hashtags are fully controlled — no keyword extraction.
+    // Keyword-based tags were producing wrong results (e.g. #gta on a landlord story)
+    // because strategy.keywords can be contaminated by trends data or prior runs.
+
+    // --- Core Shorts + viral tags (always included) ---
+    const coreTags = [
+      '#Shorts', '#viral', '#trending', '#fyp', '#foryou'
     ];
-    
-    // Niche hashtags
-    const niche = this.identifyNiche(strategy);
-    const nicheHashtags = {
-      'technology': ['#tech', '#technology', '#innovation'],
-      'gaming': ['#gaming', '#gamer', '#games'],
-      'education': ['#education', '#learning', '#study'],
-      'business': ['#business', '#entrepreneur', '#success'],
-      'lifestyle': ['#lifestyle', '#life', '#daily'],
-      'health': ['#health', '#fitness', '#wellness'],
-      'entertainment': ['#entertainment', '#fun', '#funny']
-    };
-    
-    const selectedNicheHashtags = nicheHashtags[niche] || [];
-    hashtags.push(...selectedNicheHashtags.slice(0, 2));
-    
-    // Add 2-3 trending hashtags
-    hashtags.push(...trendingHashtags.slice(0, 3));
-    
-    // Year hashtag
-    hashtags.push(`#${new Date().getFullYear()}`);
-    
-    // Limit to 15 hashtags (YouTube recommendation)
-    return hashtags.slice(0, 15);
+
+    // --- Brainrot format tag (generic — works regardless of which gameplay clip is used) ---
+    const brainrotTags = ['#brainrot'];
+
+    // --- Reddit story niche tags (fixed, always accurate for this channel) ---
+    const storyTags = [
+      '#reddit', '#aita', '#redditstories', '#redditdrama',
+      '#storytime', '#relationship', '#pettyrevenge', '#truestory'
+    ];
+
+    // Combine all — order matters for YouTube: most important first
+    return [
+      ...coreTags,
+      ...brainrotTags,
+      ...storyTags
+    ];
   }
 
   async generateChapters(script) {
@@ -474,32 +366,37 @@ class SEOOptimizerAgent {
   }
 
   async calculateSEOScore(title, description, tags) {
+    // Scoring calibrated for YouTube Shorts + Reddit story format.
+    // Long-form metrics (timestamps, 500-word descriptions, links) don't apply here.
     let score = 0;
-    
-    // Title scoring (30 points max)
-    if (title.length >= 60 && title.length <= 70) score += 10;
-    else if (title.length >= 50 && title.length <= 100) score += 5;
-    
-    if (/\d/.test(title)) score += 5; // Contains number
-    if (/[A-Z]/.test(title)) score += 5; // Proper capitalization
-    if (title.includes(new Date().getFullYear().toString())) score += 5; // Current year
-    if (['how', 'what', 'why', 'best', 'top'].some(word => title.toLowerCase().includes(word))) score += 5;
-    
-    // Description scoring (40 points max)
-    if (description.length >= 200) score += 10;
-    if (description.length >= 500) score += 10;
-    if (description.includes('TIMESTAMPS')) score += 5;
-    if (description.includes('http')) score += 5; // Contains links
-    if (description.split('\n').length > 10) score += 5; // Well formatted
-    if (description.substring(0, 125).includes(tags[0])) score += 5; // Primary keyword in first 125 chars
-    
-    // Tags scoring (30 points max)
-    if (tags.length >= 10) score += 10;
-    if (tags.length >= 15) score += 5;
-    if (tags.some(tag => tag.split(' ').length > 2)) score += 5; // Long-tail keywords
-    if (tags.join('').length <= 500) score += 5; // Within character limit
-    if (new Set(tags).size === tags.length) score += 5; // No duplicates
-    
+
+    // ── Title (35 pts) ───────────────────────────────────────────────────
+    // Shorts titles: punchy, 40-70 chars, curiosity-gap, no hashtags
+    if (title.length >= 40 && title.length <= 70) score += 15;
+    else if (title.length >= 30 && title.length <= 100) score += 8;
+
+    if (!/#+\S/.test(title)) score += 5;   // No hashtags in title
+    if (/[A-Z]/.test(title)) score += 5;   // Proper capitalisation
+
+    // Curiosity-gap / drama triggers
+    const hookWords = ['did', 'would', 'she', 'he', 'they', 'why', 'how', 'what',
+      'my', 'told', 'caught', 'found', 'refused', 'secret', 'exposed'];
+    if (hookWords.some(w => title.toLowerCase().split(' ')[0] === w ||
+        title.toLowerCase().startsWith(w + ' '))) score += 10;
+
+    // ── Description (30 pts) ─────────────────────────────────────────────
+    // Shorts descriptions should be short: hook + CTA + hashtags only
+    if (description.length >= 50) score += 10;   // Has actual content
+    if (description.includes('#')) score += 10;   // Has hashtags
+    if (description.toLowerCase().includes('follow')) score += 10;  // Has CTA
+
+    // ── Tags (35 pts) ────────────────────────────────────────────────────
+    if (tags.length >= 8) score += 10;
+    if (tags.length >= 12) score += 5;
+    if (tags.some(t => ['reddit stories', 'aita', 'reddit shorts'].includes(t))) score += 10; // Niche tags present
+    if (tags.join('').length <= 500) score += 5;           // Within YouTube limit
+    if (new Set(tags).size === tags.length) score += 5;    // No duplicates
+
     return Math.min(100, score);
   }
 
